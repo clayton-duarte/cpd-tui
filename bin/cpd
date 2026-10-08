@@ -11,9 +11,9 @@ LAYOUT_FILE="$STATE_DIR/layout"
 mkdir -p "$STATE_DIR"
 
 # Pane commands kept together so T3 can change one line.
-SWITCHER_JS="$REPO/src/switcher.js"
-if [ -f "$SWITCHER_JS" ]; then
-  SWITCHER_CMD="node '$SWITCHER_JS'"
+SWITCHER_TS="$REPO/src/switcher.ts"
+if [ -f "$SWITCHER_TS" ]; then
+  SWITCHER_CMD="node --experimental-strip-types '$SWITCHER_TS'"
 else
   SWITCHER_CMD="echo 'cpd switcher — not built yet (T3)'; while :; do sleep 3600; done"
 fi
