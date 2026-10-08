@@ -1,0 +1,53 @@
+import { describe, it, expect } from 'vitest';
+import { parsePanesOutput, findLivePane, type CpdPane } from '../src/swap.ts';
+
+describe('parsePanesOutput', () => {
+  it('parses a well-formed list-panes -F line into CpdPane[]', () => {
+    const raw = [
+      '%0|dash|22|50|1001|switcher|',
+      '%2|dash|48|50|1002|center|abc-123',
+      '%3|dash|30|50|1003|slot|',
+      '%1|parked|160|45|1004|parked|def-456',
+    ].join('\n');
+
+    const panes = parsePanesOutput(raw);
+
+    expect(panes).toEqual<CpdPane[]>([
+      { paneId: '%0', kind: 'switcher', sessionId: null, window: 'dash', width: 22, height: 50, pid: 1001 },
+      { paneId: '%2', kind: 'center', sessionId: 'abc-123', window: 'dash', width: 48, height: 50, pid: 1002 },
+      { paneId: '%3', kind: 'slot', sessionId: null, window: 'dash', width: 30, height: 50, pid: 1003 },
+      { paneId: '%1', kind: 'parked', sessionId: 'def-456', window: 'parked', width: 160, height: 45, pid: 1004 },
+    ]);
+  });
+
+  it('treats an unrecognized @cpd_kind value as null rather than crashing', () => {
+    const raw = '%5|dash|40|50|1005|garbage|';
+    const panes = parsePanesOutput(raw);
+    expect(panes).toHaveLength(1);
+    expect(panes[0].kind).toBeNull();
+  });
+
+  it('skips blank lines and short/malformed lines', () => {
+    const raw = ['', '%0|dash|22|50|1001|switcher|', 'not-enough-fields'].join('\n');
+    const panes = parsePanesOutput(raw);
+    expect(panes).toHaveLength(1);
+    expect(panes[0].paneId).toBe('%0');
+  });
+});
+
+describe('findLivePane (live vs dormant decision)', () => {
+  const panes: CpdPane[] = [
+    { paneId: '%0', kind: 'switcher', sessionId: null, window: 'dash', width: 22, height: 50, pid: 1 },
+    { paneId: '%2', kind: 'center', sessionId: 'live-session', window: 'dash', width: 48, height: 50, pid: 2 },
+    { paneId: '%1', kind: 'parked', sessionId: 'parked-session', window: 'parked', width: 160, height: 45, pid: 3 },
+  ];
+
+  it('finds a live pane by session id regardless of whether it is centered or parked', () => {
+    expect(findLivePane(panes, 'live-session')?.paneId).toBe('%2');
+    expect(findLivePane(panes, 'parked-session')?.paneId).toBe('%1');
+  });
+
+  it('returns null for a session with no live pane (dormant), proving the dormant path is chosen', () => {
+    expect(findLivePane(panes, 'does-not-exist')).toBeNull();
+  });
+});
