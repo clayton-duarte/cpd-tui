@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# cpd — launcher for the persistent 3-pane cpd tmux dashboard.
+set -euo pipefail
+
+# 1. Resolve repo root from this script's own location (works via symlink).
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+CONF="$REPO/cpd.conf"
+STATE_DIR="$HOME/.cpd"
+LAYOUT_FILE="$STATE_DIR/layout"
+
+mkdir -p "$STATE_DIR"
+
+# Pane commands kept together so T3 can change one line.
+SWITCHER_JS="$REPO/src/switcher.js"
+if [ -f "$SWITCHER_JS" ]; then
+  SWITCHER_CMD="node '$SWITCHER_JS'"
+else
+  SWITCHER_CMD="echo 'cpd switcher — not built yet (T3)'; while :; do sleep 3600; done"
+fi
+CENTER_CMD="pi"
+SLOT_CMD="echo 'slot — reserved'; while :; do sleep 3600; done"
+
+T=(tmux -L cpd -f "$CONF")
+
+# 2. Attach-or-create idiom: if the session already exists, attach and stop.
+#    Do NOT recreate panes or re-apply a layout — preserve user resizing.
+if "${T[@]}" has-session -t cpd 2>/dev/null; then
+  exec "${T[@]}" attach -t cpd
+fi
+
+# 3. Cold create.
+"${T[@]}" new-session -d -s cpd -n dash "$SWITCHER_CMD"
+SWITCHER_PANE=$("${T[@]}" list-panes -t cpd:dash -F '#{pane_id}' | head -n1)
+
+# Target widths: switcher 22% / center 48% / slot 30% of the whole window.
+# `split-window -h -l N%` sizes the NEW pane to N% of the pane it splits from.
+# Split 1: split the switcher pane, giving the new pane (center+slot combined)
+#          48+30=78% of the total width -> switcher keeps the remaining 22%.
+# Split 2: split that combined pane again, giving the new pane (slot) 30% of
+#          the TOTAL width, which is 30/78 =~ 38% of what remains at this point.
+CENTER_PANE=$("${T[@]}" split-window -h -t "$SWITCHER_PANE" -l '78%' -P -F '#{pane_id}' "$CENTER_CMD; exec bash")
+SLOT_PANE=$("${T[@]}" split-window -h -t "$CENTER_PANE" -l '38%' -P -F '#{pane_id}' "$SLOT_CMD")
+
+# 4. Tag every pane immediately after creation, by captured pane id.
+"${T[@]}" set -p -t "$SWITCHER_PANE" @cpd_kind switcher
+"${T[@]}" set -p -t "$CENTER_PANE" @cpd_kind center
+"${T[@]}" set -p -t "$SLOT_PANE" @cpd_kind slot
+
+# Create the parked window: holds live pi sessions for T4. Single idle shell.
+"${T[@]}" new-window -d -t cpd -n parked
+
+# Apply saved layout from a previous reboot-surviving run, if present.
+if [ -f "$LAYOUT_FILE" ]; then
+  "${T[@]}" select-layout -t cpd:dash "$(cat "$LAYOUT_FILE")" || true
+fi
+
+# Save the layout whenever the last client detaches, so a reboot can restore it.
+"${T[@]}" set-hook -g client-detached \
+  "run-shell 'tmux -L cpd list-panes -t cpd:dash -F \"#{window_layout}\" | head -n1 > \"$LAYOUT_FILE\"'"
+
+# 5. Select the center pane and attach.
+"${T[@]}" select-pane -t "$CENTER_PANE"
+exec "${T[@]}" attach -t cpd

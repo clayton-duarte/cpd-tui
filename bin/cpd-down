@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# cpd-down — tears down the entire cpd tmux server.
+set -euo pipefail
+
+echo "WARNING: this kills every running pi session in the cpd dashboard." >&2
+
+CONFIRM=0
+for arg in "$@"; do
+  if [ "$arg" = "-f" ]; then
+    CONFIRM=1
+  fi
+done
+
+if [ "$CONFIRM" -ne 1 ]; then
+  read -r -p "Kill the cpd tmux server and all pi sessions in it? [y/N] " ans
+  case "$ans" in
+    y|Y) CONFIRM=1 ;;
+    *) echo "Aborted." >&2; exit 1 ;;
+  esac
+fi
+
+tmux -L cpd kill-server
