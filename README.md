@@ -49,17 +49,52 @@ Prompts for confirmation unless you pass `-f`.
 - Panes are identified by a `@cpd_kind` tag (`switcher`/`center`/`slot`) set right after
   creation, never by pane index — indexes are not stable across swaps and layout changes;
   pane ids (`%N`) are.
-- The `parked` window is where T4's swap engine will hold other live pi sessions so they
-  keep running in the background while only one is shown in the center pane.
+- The `parked-<session-id-prefix>` windows (created on demand, one per
+  dormant/new session brought live) are where other live pi sessions keep
+  running in the background while only one is shown in the center pane. Each
+  session gets its own window — never stacked as split panes in one shared
+  window — so there is no ceiling on how many can be live at once.
 - On detach, the current `dash` layout is saved to `~/.cpd/layout` and re-applied the next
   time `cpd` cold-starts (i.e. after a reboot killed the server), so your pane sizes
   survive a reboot too, not just a closed terminal.
 
 ### Mouse mode and native text selection
 
-`cpd.conf` sets `mouse on` (click-to-focus panes, drag-to-resize borders). This means a
-plain click-drag no longer does your terminal's native text selection — on macOS hold
-`Option` while dragging (iTerm2/Terminal.app) to select/copy text as usual.
+`cpd.conf` sets `mouse on` (click-to-focus panes, drag-to-resize borders, and
+click/scroll in the switcher — see "Switcher keys" below). This means a
+plain click-drag no longer does your terminal's native text selection — on
+macOS hold `Option` while dragging (iTerm2/Terminal.app) to select/copy text
+as usual.
+
+### Switcher keys and mouse
+
+Inside the switcher pane (left column):
+
+- `j`/`k` or `↓`/`↑` — move selection
+- `Enter` — focus the selected session into the center pane (swaps a live
+  session in place, or spawns a dormant one into its own parked window first)
+- click a row — select it; click the already-selected row again (or
+  double-click) — open it, same as `Enter`
+- scroll wheel — scrolls the list when it's longer than the pane
+- `n` — create a brand-new pi session. Prompts for a starting directory
+  (`↑`/`↓` to choose, `Enter` to confirm, `Esc` to cancel) between the
+  currently-selected row's cwd, the repo root, and `$HOME`.
+- `d` — delete the selected session, after a `y`/`n` confirmation. Refuses
+  with `close it first` if the session is currently live (in a pane) —
+  close/swap it out first. Deleted sessions are moved to `~/.cpd/trash/`,
+  not permanently unlinked, so a misfire is recoverable.
+- `r` — force a manual refresh (liveness also re-polls automatically every
+  ~2.5s and after every focus/create/delete, so this is rarely needed)
+- `q` / `Ctrl-C` — quit the switcher (does not tear down the dashboard)
+
+From **anywhere** in the `cpd` session (no tmux prefix needed), jump straight
+to a dash pane:
+
+- `M-1` — switcher, `M-2` — center (pi), `M-3` — slot
+
+These use Option/Alt as a tmux Meta key. On macOS, if your terminal sends
+Option as a literal accented character instead of Meta, enable "Option key
+sends Esc+" in iTerm2/Terminal.app → Profiles → Keys for these to register.
 
 ### Reboot persistence: what's in scope here and what isn't
 

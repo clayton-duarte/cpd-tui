@@ -46,8 +46,6 @@ SLOT_PANE=$("${T[@]}" split-window -h -t "$CENTER_PANE" -l '38%' -P -F '#{pane_i
 "${T[@]}" set -p -t "$CENTER_PANE" @cpd_kind center
 "${T[@]}" set -p -t "$SLOT_PANE" @cpd_kind slot
 
-# Create the parked window: holds live pi sessions for T4. Single idle shell.
-"${T[@]}" new-window -d -t cpd -n parked
 
 # Apply saved layout from a previous reboot-surviving run, if present.
 if [ -f "$LAYOUT_FILE" ]; then

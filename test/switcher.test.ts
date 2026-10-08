@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import type { PiSession } from '../src/sessions.ts';
 import { renderSwitcher, relativeTime } from '../src/switcher-render.ts';
-import { preserveSelectionById } from '../src/switcher-selection.ts';
+import { preserveSelectionById, nextSelectionAfterDeletion } from '../src/switcher-selection.ts';
 
 function makeSession(overrides: Partial<PiSession> & { id: string }): PiSession {
   return {
@@ -164,5 +164,27 @@ describe('preserveSelectionById — the reordering regression guard', () => {
     // Explicit "no prior selection" case should pick the first row.
     const result = preserveSelectionById(null, ['a', 'b']);
     expect(result).toBe('a');
+  });
+});
+
+describe('nextSelectionAfterDeletion (the delete-selection regression guard)', () => {
+  it('moves to the next row (same index) when a middle row is deleted', () => {
+    const result = nextSelectionAfterDeletion('b', ['a', 'b', 'c'], ['a', 'c']);
+    expect(result).toBe('c');
+  });
+
+  it('moves to the new last row when the last row is deleted', () => {
+    const result = nextSelectionAfterDeletion('c', ['a', 'b', 'c'], ['a', 'b']);
+    expect(result).toBe('b');
+  });
+
+  it('selects the first row when the first row is deleted', () => {
+    const result = nextSelectionAfterDeletion('a', ['a', 'b', 'c'], ['b', 'c']);
+    expect(result).toBe('b');
+  });
+
+  it('returns null when deleting the only row leaves the list empty', () => {
+    const result = nextSelectionAfterDeletion('a', ['a'], []);
+    expect(result).toBeNull();
   });
 });
