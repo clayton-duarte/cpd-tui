@@ -65,6 +65,29 @@ export function userMessage(text: string, id = 'u1') {
   };
 }
 
+/** A user message whose content is an array of parts, matching the real
+ * on-disk shape (`message.content: [{ type: 'text', text: '...' }]`) rather
+ * than a plain string. */
+export function userMessageParts(text: string, id = 'u1') {
+  return {
+    type: 'message',
+    id,
+    parentId: null,
+    timestamp: new Date().toISOString(),
+    message: { role: 'user', content: [{ type: 'text', text }] },
+  };
+}
+
+export function systemMessage(text: string, id = 'sys1') {
+  return {
+    type: 'message',
+    id,
+    parentId: null,
+    timestamp: new Date().toISOString(),
+    message: { role: 'system', content: text },
+  };
+}
+
 export function sessionInfoName(name: string, id = 'si1', timestamp?: string) {
   return {
     type: 'session_info',

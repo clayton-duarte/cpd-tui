@@ -1,4 +1,4 @@
-import { listSessions } from '../src/sessions.js';
+import { listSessions } from '../src/sessions.ts';
 
 const root = `${process.env.HOME}/.pi/agent/sessions`;
 const start = Date.now();

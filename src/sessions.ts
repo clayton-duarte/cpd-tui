@@ -1,4 +1,5 @@
-import { readdirSync, statSync, openSync, closeSync, readSync, existsSync, watch, FSWatcher } from 'node:fs';
+import { readdirSync, statSync, openSync, closeSync, readSync, existsSync, watch } from 'node:fs';
+import type { FSWatcher } from 'node:fs';
 
 export interface PiSession {
   id: string;
@@ -106,6 +107,25 @@ function findLatestSessionInfoName(text: string): string | null {
   return latest ? latest.name : null;
 }
 
+/** Extract the text from a message content field, which may be a plain string
+ * or an array of content parts (e.g. [{ type: 'text', text: '...' }, ...]). */
+function extractMessageText(content: unknown): string | null {
+  if (typeof content === 'string') {
+    return content.length > 0 ? content : null;
+  }
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const part of content) {
+      if (part && typeof part === 'object' && typeof (part as any).text === 'string') {
+        parts.push((part as any).text);
+      }
+    }
+    const joined = parts.join(' ').trim();
+    return joined.length > 0 ? joined : null;
+  }
+  return null;
+}
+
 /** Find the first user message text by scanning forward, stopping at first match. */
 function findFirstUserMessage(text: string): string | null {
   const lines = text.split('\n');
@@ -118,14 +138,9 @@ function findFirstUserMessage(text: string): string | null {
     } catch {
       continue;
     }
-    if (
-      obj &&
-      obj.type === 'message' &&
-      obj.message &&
-      obj.message.role === 'user' &&
-      typeof obj.message.content === 'string'
-    ) {
-      return obj.message.content;
+    if (obj && obj.type === 'message' && obj.message && obj.message.role === 'user') {
+      const text = extractMessageText(obj.message.content);
+      if (text) return text;
     }
   }
   return null;
@@ -144,8 +159,15 @@ function resolveLabel(file: string, fileSize: number, cwd: string): string {
     if (firstMsg) return truncateLabel(firstMsg);
   }
 
-  // Tier 3: cwd basename.
+  // Tier 3: cwd basename, preferring '~' for the home directory and a short
+  // relative path when the basename alone would be a weak/ambiguous label.
+  const home = process.env.HOME;
+  if (home && cwd === home) return '~';
   const base = cwd.split(/[/\\]/).filter(Boolean).pop() ?? cwd;
+  if (home && cwd.startsWith(`${home}/`)) {
+    const rel = cwd.slice(home.length + 1);
+    return truncateLabel(`~/${rel}`);
+  }
   return truncateLabel(base);
 }
 

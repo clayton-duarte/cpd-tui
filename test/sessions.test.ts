@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { rmSync, mkdirSync, writeFileSync, statSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { listSessions, watchSessions } from '../src/sessions.js';
+import { listSessions, watchSessions } from '../src/sessions.ts';
 import {
   makeFixtureRoot,
   writeSessionFixture,
   userMessage,
+  userMessageParts,
+  systemMessage,
   sessionInfoName,
-} from './fixtures.js';
+} from './fixtures.ts';
 
 const roots: string[] = [];
 function root(): string {
@@ -100,6 +102,28 @@ describe('listSessions - label resolution order', () => {
     });
     const sessions = await listSessions(r);
     expect(sessions[0].label).toBe('second-name');
+  });
+
+  it('extracts text when user message content is an array of parts (real on-disk shape)', async () => {
+    const r = root();
+    writeSessionFixture({
+      root: r,
+      cwd: '/Users/x/foo',
+      lines: [userMessageParts('ping')],
+    });
+    const sessions = await listSessions(r);
+    expect(sessions[0].label).toBe('ping');
+  });
+
+  it('skips a leading system message and finds the first user message', async () => {
+    const r = root();
+    writeSessionFixture({
+      root: r,
+      cwd: '/Users/x/foo',
+      lines: [systemMessage(''), userMessageParts('hello')],
+    });
+    const sessions = await listSessions(r);
+    expect(sessions[0].label).toBe('hello');
   });
 });
 
