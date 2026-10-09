@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import type { PiSession } from '../src/sessions.ts';
 import { renderSwitcher, relativeTime } from '../src/switcher-render.ts';
-import { preserveSelectionById, nextSelectionAfterDeletion } from '../src/switcher-selection.ts';
+import { preserveSelectionById, selectionAfterDeletion } from '../src/switcher-selection.ts';
 import { SwitcherComponent, handleRowClick } from '../src/switcher.ts';
 import { createFakeSwap } from '../src/swap-fake.ts';
 import type { SwapModule, CpdPane } from '../src/swap-contract.ts';
@@ -220,25 +220,37 @@ describe('preserveSelectionById — the reordering regression guard', () => {
   });
 });
 
-describe('nextSelectionAfterDeletion (the delete-selection regression guard)', () => {
-  it('moves to the next row (same index) when a middle row is deleted', () => {
-    const result = nextSelectionAfterDeletion('b', ['a', 'b', 'c'], ['a', 'c']);
-    expect(result).toBe('c');
+describe('selectionAfterDeletion (the delete-selection regression guard)', () => {
+  it('[A] moves to the PREVIOUS row (the one above) when a middle row is deleted', () => {
+    const result = selectionAfterDeletion('b', ['a', 'b', 'c'], ['a', 'c']);
+    expect(result).toBe('a');
   });
 
-  it('moves to the new last row when the last row is deleted', () => {
-    const result = nextSelectionAfterDeletion('c', ['a', 'b', 'c'], ['a', 'b']);
+  it('[C] moves to the new last row when the last row is deleted (previous row is unaffected)', () => {
+    const result = selectionAfterDeletion('c', ['a', 'b', 'c'], ['a', 'b']);
     expect(result).toBe('b');
   });
 
-  it('selects the first row when the first row is deleted', () => {
-    const result = nextSelectionAfterDeletion('a', ['a', 'b', 'c'], ['b', 'c']);
+  it('[B] selects the new first row when the first row is deleted (no previous row to fall back to)', () => {
+    const result = selectionAfterDeletion('a', ['a', 'b', 'c'], ['b', 'c']);
     expect(result).toBe('b');
   });
 
-  it('returns null when deleting the only row leaves the list empty', () => {
-    const result = nextSelectionAfterDeletion('a', ['a'], []);
+  it('[D] returns null when deleting the only row leaves the list empty', () => {
+    const result = selectionAfterDeletion('a', ['a'], []);
     expect(result).toBeNull();
+  });
+
+  it('[G] skips a previous row that was ALSO deleted, never returning a stale id', () => {
+    // 'c' deleted, but 'b' vanished too (concurrent/external deletion).
+    const result = selectionAfterDeletion('c', ['a', 'b', 'c', 'd'], ['a', 'd']);
+    expect(result).toBe('a');
+    expect(['a', 'd']).toContain(result);
+  });
+
+  it('[H] falls forward when every row above the deleted one is gone', () => {
+    const result = selectionAfterDeletion('c', ['a', 'b', 'c'], ['c2', 'd']);
+    expect(result).toBe('c2');
   });
 });
 
@@ -402,5 +414,46 @@ describe('"d" on a live session offers to close it, not refuse (T-DEL)', () => {
     await switcher.confirmDeleteLive();
 
     expect(existsSync(file)).toBe(false);
+  });
+
+  it('[E] dormant delete selects the PREVIOUS row and never calls focusSelected (T-DELSEL)', async () => {
+    const { session } = makeFixture();
+    const prevFile = join(tmpdir(), 'cpd-tui-tdelsel-prev.jsonl');
+    writeFileSync(prevFile, 'hello');
+    const prevSession = makeSession({ id: 'prev-1', file: prevFile, label: 'previous session' });
+    const swap = makeMockSwap();
+    const switcher = new SwitcherComponent(swap, '/repo');
+    let focusSelectedCalls = 0;
+    (switcher as unknown as { focusSelected: () => Promise<void> }).focusSelected = async () => {
+      focusSelectedCalls++;
+    };
+    (switcher as unknown as { sessions: PiSession[] }).sessions = [prevSession, session];
+    (switcher as unknown as { liveIds: Set<string> }).liveIds = new Set(); // dormant
+    (switcher as unknown as { selectedId: string | null }).selectedId = 'live-1';
+
+    switcher.startDelete();
+    await switcher.confirmDelete();
+
+    expect((switcher as unknown as { selectedId: string | null }).selectedId).toBe('prev-1');
+    expect(focusSelectedCalls).toBe(0);
+    rmSync(prevFile, { force: true });
+  });
+
+  it('[F] live delete (confirmDeleteLive) also selects the PREVIOUS row after the pane is killed', async () => {
+    const { session } = makeFixture();
+    const prevFile = join(tmpdir(), 'cpd-tui-tdelsel-prev-live.jsonl');
+    writeFileSync(prevFile, 'hello');
+    const prevSession = makeSession({ id: 'prev-2', file: prevFile, label: 'previous live session' });
+    const swap = makeMockSwap();
+    const switcher = new SwitcherComponent(swap, '/repo');
+    (switcher as unknown as { sessions: PiSession[] }).sessions = [prevSession, session];
+    (switcher as unknown as { liveIds: Set<string> }).liveIds = new Set(['live-1']);
+    (switcher as unknown as { selectedId: string | null }).selectedId = 'live-1';
+
+    switcher.startDelete();
+    await switcher.confirmDeleteLive();
+
+    expect((switcher as unknown as { selectedId: string | null }).selectedId).toBe('prev-2');
+    rmSync(prevFile, { force: true });
   });
 });

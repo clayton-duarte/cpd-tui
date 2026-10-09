@@ -13,7 +13,7 @@ import { listSessions, watchSessions, type PiSession } from './sessions.ts';
 import { renderSwitcher } from './switcher-render.ts';
 import type { SwitcherModeKind } from './switcher-render.ts';
 import { orderSessionsAsTree } from './session-tree.ts';
-import { preserveSelectionById, nextSelectionAfterDeletion } from './switcher-selection.ts';
+import { preserveSelectionById, selectionAfterDeletion } from './switcher-selection.ts';
 import { assertDeletable, trashSessionFile, defaultTrashRoot, LiveSessionDeleteError } from './delete.ts';
 import { loadSwap } from './swap-loader.ts';
 import type { SwapModule } from './swap-contract.ts';
@@ -218,7 +218,7 @@ export class SwitcherComponent {
     const beforeIds = this.sessions.map((s) => s.id);
     this.sessions = this.sessions.filter((s) => s.id !== sessionId);
     const afterIds = this.sessions.map((s) => s.id);
-    this.selectedId = nextSelectionAfterDeletion(sessionId, beforeIds, afterIds);
+    this.selectedId = selectionAfterDeletion(sessionId, beforeIds, afterIds);
   }
 
   async confirmDelete(): Promise<void> {
