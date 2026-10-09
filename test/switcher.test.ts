@@ -275,12 +275,15 @@ describe('"d" on a live session offers to close it, not refuse (T-DEL)', () => {
   it('[A] live session + confirm: closes the pane BEFORE trashing, trash called once', async () => {
     const { file, session } = makeFixture();
     const calls: string[] = [];
+    // Ordering proof: RECORD whether the file is still on disk at the moment
+    // the pane close fires, then assert outside the mock. Asserting in here
+    // would be swallowed by confirmDeleteLive's try/catch and the test would
+    // pass even with the order reversed.
+    let fileExistedAtClose: boolean | null = null;
     const swap = makeMockSwap({
       killParkedWindowForSession: async () => {
         calls.push('close');
-        // Ordering proof: at the moment the pane close fires, the session
-        // file must still be on disk — trash has not run yet.
-        expect(existsSync(file)).toBe(true);
+        fileExistedAtClose = existsSync(file);
       },
     });
     const switcher = new SwitcherComponent(swap, '/repo');
@@ -294,6 +297,7 @@ describe('"d" on a live session offers to close it, not refuse (T-DEL)', () => {
     await switcher.confirmDeleteLive();
 
     expect(calls).toEqual(['close']);
+    expect(fileExistedAtClose).toBe(true); // close ran BEFORE trash
     expect(existsSync(file)).toBe(false); // trashed after close
   });
 
