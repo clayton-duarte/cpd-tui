@@ -3,11 +3,16 @@ import {
   ProcessTerminal,
   TuiAltScreen,
   Text,
+  Box,
+  SelectList,
   foregroundAnsi,
   rgbColor,
   visibleWidth,
   type TuiMouseEvent,
   type TuiMouseEventResult,
+  type SelectItem,
+  type SelectListTheme,
+  type OverlayHandle,
 } from '@earendil-works/pi-tui';
 import { listSessions, watchSessions, type PiSession } from './sessions.ts';
 import { renderSwitcher } from './switcher-render.ts';
@@ -48,6 +53,10 @@ export class SwitcherComponent {
   private errorTimer: NodeJS.Timeout | null = null;
   private dashboardRunning = true;
   private mode: Mode = { kind: 'list' };
+  /** Whether the right-click context menu overlay is currently shown. While
+   * true, normal list keybindings (handleKey) must not fire -- keys are
+   * routed to the overlay instead. */
+  private contextMenuOpen = false;
   /** Local overrides so a brand-new session shows as live immediately, before
    * its .jsonl file appears in listSessions() (Defect 4's "subtle part"). */
   private pendingNewSessions: Map<string, { paneId: string; cwd: string; createdAt: number }> = new Map();
@@ -267,6 +276,14 @@ export class SwitcherComponent {
     return this.mode;
   }
 
+  isContextMenuOpen(): boolean {
+    return this.contextMenuOpen;
+  }
+
+  setContextMenuOpen(open: boolean): void {
+    this.contextMenuOpen = open;
+  }
+
   private showError(message: string): void {
     this.errorMessage = message;
     if (this.errorTimer) clearTimeout(this.errorTimer);
@@ -330,10 +347,16 @@ function clamp(line: string, width: number): string {
 class SwitcherTextComponent implements Pick<Text, 'render' | 'invalidate'> {
   private readonly switcher: SwitcherComponent;
   private readonly onRowClick: (rowIndex: number, clickCount: number) => void;
+  private readonly onRowRightClick: (rowIndex: number, event: TuiMouseEvent) => void;
 
-  constructor(switcher: SwitcherComponent, onRowClick: (rowIndex: number, clickCount: number) => void) {
+  constructor(
+    switcher: SwitcherComponent,
+    onRowClick: (rowIndex: number, clickCount: number) => void,
+    onRowRightClick: (rowIndex: number, event: TuiMouseEvent) => void,
+  ) {
     this.switcher = switcher;
     this.onRowClick = onRowClick;
+    this.onRowRightClick = onRowRightClick;
   }
 
   render(width: number): string[] {
@@ -351,6 +374,10 @@ class SwitcherTextComponent implements Pick<Text, 'render' | 'invalidate'> {
     if (event.type !== 'click') return undefined;
     const rowIndex = this.switcher.rowIndexForLine(event.y);
     if (rowIndex === null) return undefined;
+    if (event.button === 'right') {
+      this.onRowRightClick(rowIndex, event);
+      return { handled: true, render: true };
+    }
     this.onRowClick(rowIndex, event.clickCount ?? 1);
     return { handled: true, render: true };
   }
@@ -373,11 +400,28 @@ export function handleRowClick(
   void switcher.focusSelected().then(() => onRender());
 }
 
+/** Right-click handler: selects the clicked row (NOT the previously selected
+ * one) but does NOT focus/open it -- that's the key behavioural difference
+ * from a left-click. Opening the context menu overlay is done by the caller
+ * (main()), which has access to the TUI instance for showOverlay(). */
+export function handleRowRightClick(
+  switcher: SwitcherComponent,
+  rowIndex: number,
+  onRender: () => void,
+): string | undefined {
+  const id = switcher.sessionIdAt(rowIndex);
+  if (!id) return undefined;
+  switcher.selectId(id);
+  onRender();
+  return id;
+}
+
 /** Top-level key dispatch for normal 'list' mode (prompts/modes are handled
  * by main() before calling this). Returns whether the key was handled.
  * Pure refactor of the body that used to live inline in main()'s stdin
  * handler -- behaviour must stay identical. */
 export function handleKey(key: string, switcher: SwitcherComponent, onRender: () => void): boolean {
+  if (switcher.isContextMenuOpen()) return false;
   if (key === 'j' || key === '\u001b[B') {
     switcher.moveSelection(1);
     onRender();
@@ -424,6 +468,70 @@ function resolveRepoRoot(): string {
   return new URL('..', `file://${here}`).pathname.replace(/\/$/, '');
 }
 
+const IDENTITY_THEME: SelectListTheme = {
+  selectedPrefix: (text: string) => text,
+  selectedText: (text: string) => text,
+  description: (text: string) => text,
+  scrollInfo: (text: string) => text,
+  noMatch: (text: string) => text,
+};
+
+type ContextMenuAction = 'open' | 'fork' | 'delete' | 'cancel';
+
+const CONTEXT_MENU_ITEMS: SelectItem[] = [
+  { value: 'open', label: 'Open' },
+  { value: 'fork', label: 'Fork' },
+  { value: 'delete', label: 'Delete' },
+  { value: 'cancel', label: 'Cancel' },
+];
+
+/** Builds and shows the right-click context menu overlay, acting on
+ * `sessionId` (the row that was actually right-clicked -- selectId() must
+ * already have been called by handleRowRightClick before this runs). Reuses
+ * the existing focus/fork/delete methods rather than duplicating them. */
+function showContextMenu(
+  switcher: SwitcherComponent,
+  ui: TuiAltScreen,
+  event: TuiMouseEvent,
+  onRender: () => void,
+): void {
+  const list = new SelectList(CONTEXT_MENU_ITEMS, CONTEXT_MENU_ITEMS.length, IDENTITY_THEME);
+  const box = new Box(1, 0);
+  box.addChild(list as unknown as Parameters<Box['addChild']>[0]);
+
+  let handle: OverlayHandle | undefined;
+  const close = (): void => {
+    switcher.setContextMenuOpen(false);
+    handle?.hide();
+    onRender();
+  };
+
+  list.onCancel = () => close();
+  list.onSelect = (item: SelectItem) => {
+    const action = item.value as ContextMenuAction;
+    close();
+    if (action === 'open') {
+      void switcher.focusSelected().then(() => onRender());
+    } else if (action === 'fork') {
+      void switcher.forkSelected().then(() => onRender());
+    } else if (action === 'delete') {
+      switcher.startDelete();
+      onRender();
+    }
+    // 'cancel' -> already closed above, nothing else to do.
+  };
+
+  switcher.setContextMenuOpen(true);
+  handle = ui.showOverlay(box as unknown as Parameters<typeof ui.showOverlay>[0], {
+    anchor: 'top-left',
+    offsetX: event.screenX,
+    offsetY: event.screenY,
+    nonCapturing: false,
+  });
+  handle.focus();
+  onRender();
+}
+
 async function main(): Promise<void> {
   const swap = await loadSwap();
   const repoRoot = resolveRepoRoot();
@@ -432,9 +540,17 @@ async function main(): Promise<void> {
 
   const terminal = new ProcessTerminal();
   const ui = new TuiAltScreen(terminal, false, undefined, { mouse: true });
-  const component = new SwitcherTextComponent(switcher, (rowIndex, clickCount) => {
-    handleRowClick(switcher, rowIndex, clickCount, () => ui.requestRender());
-  });
+  const component = new SwitcherTextComponent(
+    switcher,
+    (rowIndex, clickCount) => {
+      handleRowClick(switcher, rowIndex, clickCount, () => ui.requestRender());
+    },
+    (rowIndex, event) => {
+      const id = handleRowRightClick(switcher, rowIndex, () => ui.requestRender());
+      if (!id) return;
+      showContextMenu(switcher, ui, event, () => ui.requestRender());
+    },
+  );
   ui.setLayoutRoot(component as unknown as Parameters<typeof ui.setLayoutRoot>[0]);
 
   let stopped = false;
