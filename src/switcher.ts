@@ -31,7 +31,7 @@ type Mode =
   | { kind: 'confirm-delete'; sessionId: string; label: string }
   | { kind: 'create-cwd'; choices: CreateCwdChoice[]; selectedIndex: number };
 
-class SwitcherComponent {
+export class SwitcherComponent {
   private sessions: PiSession[] = [];
   private selectedId: string | null = null;
   private liveIds: Set<string> = new Set();
@@ -294,6 +294,23 @@ class SwitcherTextComponent implements Pick<Text, 'render' | 'invalidate'> {
   }
 }
 
+/** Row-click handler: a single click on ANY row selects and focuses that
+ * session (one click = select + open). The in-flight guard in
+ * SwitcherComponent.focusSelected() (via pendingFocusId) prevents a
+ * double-click's second click from firing a second focus call. */
+export function handleRowClick(
+  switcher: SwitcherComponent,
+  rowIndex: number,
+  _clickCount: number,
+  onRender: () => void,
+): void {
+  const id = switcher.sessionIdAt(rowIndex);
+  if (!id) return;
+  switcher.selectId(id);
+  onRender();
+  void switcher.focusSelected().then(() => onRender());
+}
+
 function resolveRepoRoot(): string {
   // bin/cpd resolves the repo root from its own location; switcher.ts lives
   // one directory below it (src/), so mirror that: go up one from this file.
@@ -310,14 +327,7 @@ async function main(): Promise<void> {
   const terminal = new ProcessTerminal();
   const ui = new TuiAltScreen(terminal, false, undefined, { mouse: true });
   const component = new SwitcherTextComponent(switcher, (rowIndex, clickCount) => {
-    const id = switcher.sessionIdAt(rowIndex);
-    if (!id) return;
-    const wasSelected = switcher['selectedId'] === id; // same-row re-click opens
-    switcher.selectId(id);
-    ui.requestRender();
-    if (wasSelected || clickCount >= 2) {
-      void switcher.focusSelected().then(() => ui.requestRender());
-    }
+    handleRowClick(switcher, rowIndex, clickCount, () => ui.requestRender());
   });
   ui.setLayoutRoot(component as unknown as Parameters<typeof ui.setLayoutRoot>[0]);
 

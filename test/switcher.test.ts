@@ -3,6 +3,8 @@ import { visibleWidth } from '@earendil-works/pi-tui';
 import type { PiSession } from '../src/sessions.ts';
 import { renderSwitcher, relativeTime } from '../src/switcher-render.ts';
 import { preserveSelectionById, nextSelectionAfterDeletion } from '../src/switcher-selection.ts';
+import { SwitcherComponent, handleRowClick } from '../src/switcher.ts';
+import { createFakeSwap } from '../src/swap-fake.ts';
 
 function makeSession(overrides: Partial<PiSession> & { id: string }): PiSession {
   return {
@@ -14,6 +16,7 @@ function makeSession(overrides: Partial<PiSession> & { id: string }): PiSession 
     ...overrides,
   };
 }
+
 
 describe('renderSwitcher row width', () => {
   it('never exceeds the given width, including at an absurdly narrow width', () => {
@@ -186,5 +189,50 @@ describe('nextSelectionAfterDeletion (the delete-selection regression guard)', (
   it('returns null when deleting the only row leaves the list empty', () => {
     const result = nextSelectionAfterDeletion('a', ['a'], []);
     expect(result).toBeNull();
+  });
+});
+
+describe('handleRowClick — single click opens (T-CLICK)', () => {
+  async function makeSwitcherWithSessions(ids: string[]): Promise<{
+    switcher: SwitcherComponent;
+    fake: ReturnType<typeof createFakeSwap>;
+  }> {
+    const fake = createFakeSwap();
+    const switcher = new SwitcherComponent(fake, '/repo');
+    await switcher.refresh(); // sessions=[] from empty disk root
+    // Seed sessions directly (test-only access), mirroring how main() reads
+    // switcher['selectedId'] via bracket access elsewhere in this codebase.
+    (switcher as unknown as { sessions: PiSession[] })['sessions'] = ids.map((id) =>
+      makeSession({ id }),
+    );
+    return { switcher, fake };
+  }
+
+  it('[A] click once on an UNSELECTED row -> exactly one focusSession for that row', async () => {
+    const { switcher, fake } = await makeSwitcherWithSessions(['a', 'b']);
+    let renders = 0;
+    handleRowClick(switcher, 1, 1, () => renders++);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fake.focusCalls.map((s) => s.id)).toEqual(['b']);
+    expect(renders).toBeGreaterThan(0);
+  });
+
+  it('[B] click once on the ALREADY-selected row -> still exactly one focusSession (no regression)', async () => {
+    const { switcher, fake } = await makeSwitcherWithSessions(['a', 'b']);
+    handleRowClick(switcher, 0, 1, () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    handleRowClick(switcher, 0, 1, () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fake.focusCalls.map((s) => s.id)).toEqual(['a', 'a']);
+  });
+
+  it('[C] double-click a row -> focusSession called exactly once, not twice', async () => {
+    const { switcher, fake } = await makeSwitcherWithSessions(['a', 'b']);
+    // Simulate two rapid click events composing a double-click: clickCount 1
+    // then clickCount 2, both dispatched before the first focus resolves.
+    handleRowClick(switcher, 0, 1, () => {});
+    handleRowClick(switcher, 0, 2, () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fake.focusCalls.length).toBe(1);
   });
 });
