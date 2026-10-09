@@ -1,6 +1,12 @@
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import type { PiSession } from './sessions.ts';
 
+/** Every input mode the switcher can be in. Declared HERE because switcher.ts
+ * already imports this module (the reverse would be a cycle), and switcher.ts
+ * constrains its Mode union to this type -- so adding a mode there without
+ * teaching the renderer about it is a compile error, not a silent default. */
+export type SwitcherModeKind = 'list' | 'create-cwd' | 'confirm-delete' | 'confirm-delete-live';
+
 export interface RenderOptions {
   width: number;
   ascii: boolean;
@@ -12,7 +18,7 @@ export interface RenderOptions {
   /** Which input mode is active. The bottom hint line only shows the
    * list-mode shortcuts when this is 'list' (the default) — any other mode
    * is expected to render its own hint line instead, so we don't double up. */
-  mode?: 'list' | 'create-cwd' | 'confirm-delete';
+  mode?: SwitcherModeKind;
 }
 
 const ARROWS = { unicode: '\u2191\u2193', ascii: 'up/down' };
