@@ -24,14 +24,14 @@ const LIVENESS_POLL_MS = 2500;
 const DIM = (text: string): string => foregroundAnsi(rgbColor(120, 120, 130), 'truecolor') + text;
 const BOLD_RESET = '\x1b[0m';
 
-type CreateCwdChoice = { label: string; cwd: string };
+export type CreateCwdChoice = { label: string; cwd: string };
 
 type Mode =
   | { kind: 'list' }
   | { kind: 'confirm-delete'; sessionId: string; label: string }
   | { kind: 'create-cwd'; choices: CreateCwdChoice[]; selectedIndex: number };
 
-class SwitcherComponent {
+export class SwitcherComponent {
   private sessions: PiSession[] = [];
   private selectedId: string | null = null;
   private liveIds: Set<string> = new Set();
@@ -135,10 +135,10 @@ class SwitcherComponent {
   startCreate(): void {
     const selected = this.selected();
     const choices: CreateCwdChoice[] = [];
-    if (selected) choices.push({ label: `selected row's cwd (${selected.cwd})`, cwd: selected.cwd });
-    choices.push({ label: `repo root (${this.repoRoot})`, cwd: this.repoRoot });
     const home = process.env.HOME ?? '/';
     choices.push({ label: `$HOME (${home})`, cwd: home });
+    if (selected) choices.push({ label: `selected row's cwd (${selected.cwd})`, cwd: selected.cwd });
+    choices.push({ label: `repo root (${this.repoRoot})`, cwd: this.repoRoot });
     this.mode = { kind: 'create-cwd', choices, selectedIndex: 0 };
   }
 
