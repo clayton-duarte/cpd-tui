@@ -50,6 +50,11 @@ describe('renderListHint responsive wrapping (T-HINT2)', () => {
     for (const token of ['enter', 'n', 'f', 'd', 'r']) {
       expect(joined).toContain(token);
     }
+    // The bare tier must PACK tokens onto shared lines while they fit, not
+    // degrade to one-token-per-line (that is the last-resort tier, and at
+    // width=8 it is not yet warranted). Without this, dropping the bare
+    // wrapSegments tier entirely still passes.
+    expect(lines).toEqual(['\u2191\u2193', 'enter', 'n \u00b7 f', 'd \u00b7 r']);
   });
 
   it('[E] ascii mode -> no non-ASCII characters anywhere in the output', () => {
