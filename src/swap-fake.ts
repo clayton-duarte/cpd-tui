@@ -58,6 +58,9 @@ export function createFakeSwap(): SwapModule & { focusCalls: PiSession[] } {
     async createSession(): Promise<{ paneId: string }> {
       return { paneId: '%1' };
     },
+    async forkSession(): Promise<{ paneId: string }> {
+      return { paneId: '%1' };
+    },
     async tagPaneSession(): Promise<void> {
       // no-op
     },

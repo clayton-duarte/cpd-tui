@@ -17,6 +17,7 @@ export interface SwapModule {
   focusSession(session: PiSession): Promise<void>;
   isDashboardRunning(): Promise<boolean>;
   createSession(cwd: string): Promise<{ paneId: string }>;
+  forkSession(sourceFile: string, cwd: string): Promise<{ paneId: string }>;
   tagPaneSession(paneId: string, sessionId: string): Promise<void>;
   focusSwitcher(): Promise<void>;
   killParkedWindowForSession(sessionId: string): Promise<void>;

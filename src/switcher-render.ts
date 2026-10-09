@@ -32,6 +32,7 @@ export function renderListHint(width: number, ascii: boolean): string {
     `${glyph(ARROWS, ascii)} move`,
     'enter open',
     'n new',
+    'f fork',
     'd delete',
     'r refresh',
   ].join(sep);
