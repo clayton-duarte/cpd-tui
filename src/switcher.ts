@@ -344,7 +344,7 @@ function clamp(line: string, width: number): string {
   return visibleWidth(line) <= width ? line : line.slice(0, Math.max(0, width));
 }
 
-class SwitcherTextComponent implements Pick<Text, 'render' | 'invalidate'> {
+export class SwitcherTextComponent implements Pick<Text, 'render' | 'invalidate'> {
   private readonly switcher: SwitcherComponent;
   private readonly onRowClick: (rowIndex: number, clickCount: number) => void;
   private readonly onRowRightClick: (rowIndex: number, event: TuiMouseEvent) => void;
@@ -476,7 +476,7 @@ const IDENTITY_THEME: SelectListTheme = {
   noMatch: (text: string) => text,
 };
 
-type ContextMenuAction = 'open' | 'fork' | 'delete' | 'cancel';
+export type ContextMenuAction = 'open' | 'fork' | 'delete' | 'cancel';
 
 const CONTEXT_MENU_ITEMS: SelectItem[] = [
   { value: 'open', label: 'Open' },
@@ -484,6 +484,25 @@ const CONTEXT_MENU_ITEMS: SelectItem[] = [
   { value: 'delete', label: 'Delete' },
   { value: 'cancel', label: 'Cancel' },
 ];
+
+/** Applies a chosen context-menu action to the currently selected session
+ * (handleRowRightClick has already pointed the selection at the right-clicked
+ * row). Exported so the menu's action wiring is testable without a live TUI. */
+export function runContextMenuAction(
+  action: ContextMenuAction,
+  switcher: SwitcherComponent,
+  onRender: () => void,
+): void {
+  if (action === 'open') {
+    void switcher.focusSelected().then(() => onRender());
+  } else if (action === 'fork') {
+    void switcher.forkSelected().then(() => onRender());
+  } else if (action === 'delete') {
+    switcher.startDelete();
+    onRender();
+  }
+  // 'cancel' -> the caller already closed the overlay; nothing else to do.
+}
 
 /** Builds and shows the right-click context menu overlay, acting on
  * `sessionId` (the row that was actually right-clicked -- selectId() must
@@ -508,17 +527,8 @@ function showContextMenu(
 
   list.onCancel = () => close();
   list.onSelect = (item: SelectItem) => {
-    const action = item.value as ContextMenuAction;
     close();
-    if (action === 'open') {
-      void switcher.focusSelected().then(() => onRender());
-    } else if (action === 'fork') {
-      void switcher.forkSelected().then(() => onRender());
-    } else if (action === 'delete') {
-      switcher.startDelete();
-      onRender();
-    }
-    // 'cancel' -> already closed above, nothing else to do.
+    runContextMenuAction(item.value as ContextMenuAction, switcher, onRender);
   };
 
   switcher.setContextMenuOpen(true);

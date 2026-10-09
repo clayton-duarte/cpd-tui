@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SwitcherComponent, handleRowClick, handleRowRightClick, handleKey } from '../src/switcher.ts';
+import {
+  SwitcherComponent,
+  SwitcherTextComponent,
+  handleRowClick,
+  handleRowRightClick,
+  handleKey,
+  runContextMenuAction,
+} from '../src/switcher.ts';
 import { createFakeSwap } from '../src/swap-fake.ts';
 import type { PiSession } from '../src/sessions.ts';
 
@@ -69,8 +76,14 @@ describe('T-MENU — right-click context menu', () => {
   it('[E] choosing Delete routes to the delete-confirmation path, not an immediate delete', async () => {
     const { switcher } = await makeSwitcherWithSessions(['a', 'b']);
     handleRowRightClick(switcher, 1, () => {});
-    switcher.startDelete();
+    // Drive the REAL menu dispatcher, not startDelete() directly -- calling it
+    // here by hand passes even when the menu's delete branch is rewired to
+    // confirmDelete() and silently skips the confirmation prompt.
+    const confirmSpy = vi.spyOn(switcher, 'confirmDelete').mockResolvedValue();
+    runContextMenuAction('delete', switcher, () => {});
+    await new Promise((r) => setTimeout(r, 0));
     expect(switcher.getMode().kind).toMatch(/^confirm-delete/);
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
   it("[F] while the menu is open, a 'd' keypress does NOT reach the list's delete handler", async () => {
@@ -94,4 +107,81 @@ describe('T-MENU — right-click context menu', () => {
     expect(handled).toBe(true);
     expect(startDeleteSpy).toHaveBeenCalledTimes(1);
   });
+
+  // ---- Lead review additions (T-MENU) -------------------------------------
+  // [B] only covered handleRowRightClick() directly. Nothing exercised
+  // handleMouse()'s button branch, so deleting it entirely left 103 green.
+  function mouseEvent(button: string, y: number) {
+    return { type: 'click', button, x: 0, y, screenX: 10, screenY: y, clickCount: 1 } as never;
+  }
+
+  it('[G] handleMouse routes a RIGHT-click to the right-click handler, never to open', async () => {
+    const { switcher } = await makeSwitcherWithSessions(['a', 'b', 'c']);
+    vi.spyOn(switcher, 'rowIndexForLine').mockReturnValue(2);
+    const left: number[] = [];
+    const right: number[] = [];
+    const component = new SwitcherTextComponent(
+      switcher,
+      (rowIndex) => left.push(rowIndex),
+      (rowIndex) => right.push(rowIndex),
+    );
+    const result = component.handleMouse(mouseEvent('right', 2));
+    expect(right).toEqual([2]);
+    expect(left).toEqual([]);
+    expect(result).toEqual({ handled: true, render: true });
+  });
+
+  it('[H] handleMouse still routes a LEFT-click to the normal open path', async () => {
+    const { switcher } = await makeSwitcherWithSessions(['a', 'b', 'c']);
+    vi.spyOn(switcher, 'rowIndexForLine').mockReturnValue(1);
+    const left: number[] = [];
+    const right: number[] = [];
+    const component = new SwitcherTextComponent(
+      switcher,
+      (rowIndex) => left.push(rowIndex),
+      (rowIndex) => right.push(rowIndex),
+    );
+    component.handleMouse(mouseEvent('left', 1));
+    expect(left).toEqual([1]);
+    expect(right).toEqual([]);
+  });
+
+  // [D] called switcher.forkSelected() itself, so it passed even when the
+  // menu's 'fork' branch was rewired to focusSelected(). Drive the real dispatcher.
+  it('[I] the menu Fork action calls forkSelected and never focusSelected', async () => {
+    const { switcher } = await makeSwitcherWithSessions(['a', 'b', 'c']);
+    handleRowRightClick(switcher, 2, () => {});
+    const forkSpy = vi.spyOn(switcher, 'forkSelected').mockResolvedValue();
+    const focusSpy = vi.spyOn(switcher, 'focusSelected').mockResolvedValue();
+    runContextMenuAction('fork', switcher, () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(forkSpy).toHaveBeenCalledTimes(1);
+    expect(focusSpy).not.toHaveBeenCalled();
+    expect(switcher.selected()?.id).toBe('c');
+  });
+
+  it('[J] the menu Open action calls focusSelected and never forkSelected', async () => {
+    const { switcher } = await makeSwitcherWithSessions(['a', 'b', 'c']);
+    handleRowRightClick(switcher, 1, () => {});
+    const forkSpy = vi.spyOn(switcher, 'forkSelected').mockResolvedValue();
+    const focusSpy = vi.spyOn(switcher, 'focusSelected').mockResolvedValue();
+    runContextMenuAction('open', switcher, () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(focusSpy).toHaveBeenCalledTimes(1);
+    expect(forkSpy).not.toHaveBeenCalled();
+  });
+
+  it('[K] the menu Cancel action performs no side effects at all', async () => {
+    const { switcher } = await makeSwitcherWithSessions(['a', 'b']);
+    handleRowRightClick(switcher, 1, () => {});
+    const forkSpy = vi.spyOn(switcher, 'forkSelected').mockResolvedValue();
+    const focusSpy = vi.spyOn(switcher, 'focusSelected').mockResolvedValue();
+    const delSpy = vi.spyOn(switcher, 'startDelete');
+    runContextMenuAction('cancel', switcher, () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(forkSpy).not.toHaveBeenCalled();
+    expect(focusSpy).not.toHaveBeenCalled();
+    expect(delSpy).not.toHaveBeenCalled();
+  });
+
 });
