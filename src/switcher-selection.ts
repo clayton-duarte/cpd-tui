@@ -19,18 +19,22 @@ export function preserveSelectionById(
 
 /**
  * Choose which session id should become selected right after deleting the
- * currently-selected one. Moves to the "next" row (the one that slides up
- * into the deleted row's position) rather than resetting to the top, so a
- * run of deletions doesn't keep bouncing the cursor back to row 0.
+ * currently-selected one. Moves to the row immediately ABOVE the deleted
+ * one's old position, so the cursor lands on the thing the user was just
+ * looking near rather than jumping forward past it.
  *
  * - `beforeIds` is the ordered id list *before* the delete (includes the
  *   deleted id); `afterIds` is the ordered id list *after* the delete.
- * - If the deleted id's old index still has a row in `afterIds`, select it
- *   (that's the "next" row sliding up).
- * - Otherwise (the deleted row was last) select the new last row.
+ * - If a previous row existed (deletedIndex > 0), select the id that was
+ *   immediately above it in `beforeIds`, resolved against `afterIds` (it
+ *   can't have been deleted, so it is always still present there).
+ * - If the deleted row was the FIRST row, there is no previous row: fall
+ *   forward to the new first row.
+ * - If the deleted id wasn't in `beforeIds` at all, fall back to the first
+ *   row (defensive).
  * - Empty `afterIds` has nothing to select.
  */
-export function nextSelectionAfterDeletion(
+export function selectionAfterDeletion(
   deletedId: string,
   beforeIds: readonly string[],
   afterIds: readonly string[],
@@ -42,6 +46,9 @@ export function nextSelectionAfterDeletion(
     // anchor on, keep it simple and pick the first row.
     return afterIds[0]!;
   }
-  if (deletedIndex < afterIds.length) return afterIds[deletedIndex]!;
-  return afterIds[afterIds.length - 1]!;
+  if (deletedIndex === 0) {
+    // No previous row exists; fall forward to the new first row.
+    return afterIds[0]!;
+  }
+  return beforeIds[deletedIndex - 1]!;
 }
