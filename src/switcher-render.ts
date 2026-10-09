@@ -1,5 +1,6 @@
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import type { PiSession } from './sessions.ts';
+import { orderSessionsAsTree } from './session-tree.ts';
 
 /** Every input mode the switcher can be in. Declared HERE because switcher.ts
  * already imports this module (the reverse would be a cycle), and switcher.ts
@@ -82,8 +83,9 @@ export function renderSwitcher(sessions: readonly PiSession[], options: RenderOp
   }
 
   const now = new Date();
-  for (const session of sessions) {
-    lines.push(clampLine(renderRow(session, options, now), width, ascii));
+  const treeEntries = orderSessionsAsTree(sessions);
+  for (const entry of treeEntries) {
+    lines.push(clampLine(renderRow(entry.session, entry.depth, options, now), width, ascii));
   }
 
   lines.push('');
@@ -112,15 +114,18 @@ function clampLine(line: string, width: number, ascii: boolean): string {
   return truncateToWidth(line, width, glyph(ELLIPSIS, ascii));
 }
 
-function renderRow(session: PiSession, options: RenderOptions, now: Date): string {
+const INDENT_UNIT = { unicode: '  ', ascii: '  ' };
+
+function renderRow(session: PiSession, depth: number, options: RenderOptions, now: Date): string {
   const { width, ascii, selectedId, liveIds, pendingFocusId } = options;
   const isSelected = session.id === selectedId;
   const isLive = liveIds.has(session.id);
   const marker = isSelected ? glyph(SELECTED_MARKER, ascii) : ' ';
   const status = isLive ? glyph(LIVE_GLYPH, ascii) : glyph(DORMANT_GLYPH, ascii);
   const pending = pendingFocusId === session.id ? ` ${glyph(ELLIPSIS, ascii)}` : '';
+  const indent = glyph(INDENT_UNIT, ascii).repeat(depth);
 
-  const prefix = `${marker} ${status} `;
+  const prefix = `${indent}${marker} ${status} `;
   const prefixWidth = visibleWidth(prefix);
   const suffixWidth = visibleWidth(pending);
   const availableForLabelAndTime = Math.max(0, width - prefixWidth - suffixWidth);
