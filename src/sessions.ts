@@ -16,6 +16,8 @@ export interface PiSession {
 
 const HEADER_READ_SIZE = 4096;
 const TAIL_READ_SIZE = 16384;
+const FIRST_MESSAGE_SCAN_SIZE = 65536;
+const SCAN_CHUNK_SIZE = 4096;
 const LABEL_MAX_LEN = 80;
 
 // Matches "<iso-ish-timestamp>_<uuid>.jsonl" where the timestamp has ':' replaced with '-'
@@ -151,24 +153,56 @@ function extractMessageText(content: unknown): string | null {
   return null;
 }
 
-/** Find the first user message text by scanning forward, stopping at first match. */
-function findFirstUserMessage(text: string): string | null {
-  const lines = text.split('\n');
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let obj: any;
-    try {
-      obj = JSON.parse(trimmed);
-    } catch {
-      continue;
+/** Scan a file incrementally in chunks, up to `maxBytes`, looking for the first
+ * user message. Stops reading as soon as a match is found (early exit), never
+ * reads past `maxBytes`, and safely skips a partial/truncated final line. */
+function scanForFirstUserMessage(file: string, maxBytes: number): string | null {
+  const fd = openSync(file, 'r');
+  try {
+    let buffered = '';
+    let position = 0;
+    const chunkBuf = Buffer.alloc(SCAN_CHUNK_SIZE);
+
+    for (;;) {
+      const remaining = maxBytes - position;
+      if (remaining <= 0) break;
+      const toRead = Math.min(SCAN_CHUNK_SIZE, remaining);
+      const bytesRead = readSync(fd, chunkBuf, 0, toRead, position);
+      if (bytesRead === 0) break;
+      position += bytesRead;
+      buffered += chunkBuf.toString('utf8', 0, bytesRead);
+
+      // Process all complete lines in the buffer; keep the (possibly partial)
+      // last line around for the next chunk, unless we've hit the cap.
+      let newlineIdx: number;
+      while ((newlineIdx = buffered.indexOf('\n')) !== -1) {
+        const line = buffered.slice(0, newlineIdx);
+        buffered = buffered.slice(newlineIdx + 1);
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let obj: any;
+        try {
+          obj = JSON.parse(trimmed);
+        } catch {
+          continue;
+        }
+        if (obj && obj.type === 'message' && obj.message && obj.message.role === 'user') {
+          const text = extractMessageText(obj.message.content);
+          if (text) return text;
+        }
+      }
+
+      if (bytesRead < toRead) break; // EOF
     }
-    if (obj && obj.type === 'message' && obj.message && obj.message.role === 'user') {
-      const text = extractMessageText(obj.message.content);
-      if (text) return text;
-    }
+
+    // Whatever is left in `buffered` at this point is either a partial final
+    // line (truncated by the cap or EOF mid-line) -- never parse it; a half
+    // line would either throw (fine, caught elsewhere) or worse, parse into
+    // a bogus partial object. Skip it safely.
+    return null;
+  } finally {
+    closeSync(fd);
   }
-  return null;
 }
 
 function resolveLabel(file: string, fileSize: number, cwd: string): string {
@@ -178,9 +212,10 @@ function resolveLabel(file: string, fileSize: number, cwd: string): string {
     const name = findLatestSessionInfoName(tailText);
     if (name) return truncateLabel(name);
 
-    // Tier 2c: forward bounded read for first user message, early-exit.
-    const headText = readBoundedHead(file, HEADER_READ_SIZE);
-    const firstMsg = findFirstUserMessage(headText);
+    // Tier 2c: incremental forward scan for first user message, early-exit,
+    // bounded by FIRST_MESSAGE_SCAN_SIZE (separate from the cheap 4096-byte
+    // header read used for cwd/parentSession, which must stay cheap).
+    const firstMsg = scanForFirstUserMessage(file, FIRST_MESSAGE_SCAN_SIZE);
     if (firstMsg) return truncateLabel(firstMsg);
   }
 

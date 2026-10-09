@@ -9,6 +9,7 @@ import {
   userMessageParts,
   systemMessage,
   sessionInfoName,
+  fillerMessage,
 } from './fixtures.ts';
 
 const roots: string[] = [];
@@ -124,6 +125,78 @@ describe('listSessions - label resolution order', () => {
     });
     const sessions = await listSessions(r);
     expect(sessions[0].label).toBe('hello');
+  });
+});
+
+describe('listSessions - first-user-message scan window [A-F]', () => {
+  it('[A] finds the first user message ~14KB in, past a large system-prompt entry', async () => {
+    const r = root();
+    writeSessionFixture({
+      root: r,
+      cwd: '/Users/x/foo',
+      lines: [fillerMessage(14000), userMessageParts('how do I split a panel on tmux')],
+    });
+    const sessions = await listSessions(r);
+    expect(sessions[0].label).toBe('how do I split a panel on tmux');
+  });
+
+  it('[B] session_info.name still wins over a deep first user message', async () => {
+    const r = root();
+    writeSessionFixture({
+      root: r,
+      cwd: '/Users/x/foo',
+      lines: [fillerMessage(14000), userMessageParts('ping'), sessionInfoName('my-name')],
+    });
+    const sessions = await listSessions(r);
+    expect(sessions[0].label).toBe('my-name');
+  });
+
+  it('[C] no user message anywhere still falls back to cwd, no crash', async () => {
+    const r = root();
+    writeSessionFixture({
+      root: r,
+      cwd: '/Users/x/no-user-msg',
+      lines: [fillerMessage(14000)],
+    });
+    const sessions = await listSessions(r);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].label).toBe('no-user-msg');
+  });
+
+  it('[D] a deep first user message is preferred over the cwd label', async () => {
+    const r = root();
+    writeSessionFixture({
+      root: r,
+      cwd: '/Users/x/should-not-show',
+      lines: [fillerMessage(20000), userMessageParts('are you able to use op cli?')],
+    });
+    const sessions = await listSessions(r);
+    expect(sessions[0].label).toBe('are you able to use op cli?');
+  });
+
+  it('[E] a first user message beyond the scan cap falls back to cwd, not a crash/hang', async () => {
+    const r = root();
+    writeSessionFixture({
+      root: r,
+      cwd: '/Users/x/beyond-cap',
+      lines: [fillerMessage(70000), userMessageParts('too deep to find')],
+    });
+    const sessions = await listSessions(r);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].label).toBe('beyond-cap');
+  });
+
+  it('[F] a long first user message is truncated by truncateLabel()', async () => {
+    const r = root();
+    const longMsg = 'a'.repeat(200);
+    writeSessionFixture({
+      root: r,
+      cwd: '/Users/x/foo',
+      lines: [fillerMessage(14000), userMessageParts(longMsg)],
+    });
+    const sessions = await listSessions(r);
+    expect(sessions[0].label.length).toBe(80);
+    expect(sessions[0].label.endsWith('…')).toBe(true);
   });
 });
 

@@ -90,6 +90,18 @@ export function systemMessage(text: string, id = 'sys1') {
   };
 }
 
+/** A large filler message entry (e.g. a system prompt) used to push the first
+ * user message past a given byte offset in fixture files. */
+export function fillerMessage(approxSize: number, id = 'filler1') {
+  return {
+    type: 'message',
+    id,
+    parentId: null,
+    timestamp: new Date().toISOString(),
+    message: { role: 'system', content: 'x'.repeat(approxSize) },
+  };
+}
+
 export function sessionInfoName(name: string, id = 'si1', timestamp?: string) {
   return {
     type: 'session_info',
