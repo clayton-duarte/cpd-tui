@@ -1,6 +1,12 @@
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import type { PiSession } from './sessions.ts';
 
+/** Every input mode the switcher can be in. Declared HERE because switcher.ts
+ * already imports this module (the reverse would be a cycle), and switcher.ts
+ * constrains its Mode union to this type -- so adding a mode there without
+ * teaching the renderer about it is a compile error, not a silent default. */
+export type SwitcherModeKind = 'list' | 'create-cwd' | 'confirm-delete' | 'confirm-delete-live';
+
 export interface RenderOptions {
   width: number;
   ascii: boolean;
@@ -9,6 +15,26 @@ export interface RenderOptions {
   pendingFocusId: string | null;
   errorMessage: string | null;
   dashboardRunning: boolean;
+  /** Which input mode is active. The bottom hint line only shows the
+   * list-mode shortcuts when this is 'list' (the default) — any other mode
+   * is expected to render its own hint line instead, so we don't double up. */
+  mode?: SwitcherModeKind;
+}
+
+const ARROWS = { unicode: '\u2191\u2193', ascii: 'up/down' };
+const DOT = { unicode: '\u00b7', ascii: '-' };
+
+/** The persistent bottom-of-pane shortcut hint shown in normal list mode. */
+export function renderListHint(width: number, ascii: boolean): string {
+  const sep = ` ${glyph(DOT, ascii)} `;
+  const hint = [
+    `${glyph(ARROWS, ascii)} move`,
+    'enter open',
+    'n new',
+    'd delete',
+    'r refresh',
+  ].join(sep);
+  return clampLine(hint, width, ascii);
 }
 
 const LIVE_GLYPH = { unicode: '●', ascii: '*' };
@@ -37,6 +63,7 @@ export function relativeTime(from: Date, now: Date = new Date()): string {
 /** Render the full switcher pane body (all rows) for a given width. Never exceeds width. */
 export function renderSwitcher(sessions: readonly PiSession[], options: RenderOptions): string[] {
   const { width, ascii } = options;
+  const mode = options.mode ?? 'list';
   const lines: string[] = [];
 
   lines.push(clampLine('cpd sessions', width, ascii));
@@ -44,11 +71,13 @@ export function renderSwitcher(sessions: readonly PiSession[], options: RenderOp
 
   if (!options.dashboardRunning) {
     lines.push(clampLine('dashboard not running', width, ascii));
+    if (mode === 'list') lines.push(renderListHint(width, ascii));
     return lines;
   }
 
   if (sessions.length === 0) {
     lines.push(clampLine('no pi sessions yet', width, ascii));
+    if (mode === 'list') lines.push(renderListHint(width, ascii));
     return lines;
   }
 
@@ -64,6 +93,13 @@ export function renderSwitcher(sessions: readonly PiSession[], options: RenderOp
 
   if (options.errorMessage) {
     lines.push(clampLine(options.errorMessage, width, ascii));
+  }
+
+  // The hint line is pinned LAST and only appears in list mode; prompt modes
+  // (create-cwd, confirm-delete) render their own single hint line instead,
+  // appended by switcher.ts's render() after this returns — never both.
+  if (mode === 'list') {
+    lines.push(renderListHint(width, ascii));
   }
 
   return lines;

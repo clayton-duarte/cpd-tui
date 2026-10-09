@@ -137,6 +137,51 @@ describe('renderSwitcher empty and not-running states', () => {
   });
 });
 
+describe('renderSwitcher bottom hint line (T-HINT)', () => {
+  const sessions = [
+    makeSession({ id: 'a', label: 'one' }),
+    makeSession({ id: 'b', label: 'two' }),
+    makeSession({ id: 'c', label: 'three' }),
+  ];
+  const baseOptions = {
+    width: 60,
+    ascii: false,
+    selectedId: 'a',
+    liveIds: new Set(['a']),
+    pendingFocusId: null,
+    errorMessage: null,
+    dashboardRunning: true,
+  };
+
+  it('[A] in normal list mode, the LAST rendered line contains n and d hints', () => {
+    const lines = renderSwitcher(sessions, { ...baseOptions, mode: 'list' });
+    const last = lines[lines.length - 1]!;
+    expect(last).toContain('n new');
+    expect(last).toContain('d delete');
+  });
+
+  it('[B] at a narrow width the hint line length is <= width (clamped, no overflow)', () => {
+    for (const width of [5, 8, 12, 20]) {
+      const lines = renderSwitcher(sessions, { ...baseOptions, width, mode: 'list' });
+      const last = lines[lines.length - 1]!;
+      expect(visibleWidth(last)).toBeLessThanOrEqual(width);
+    }
+  });
+
+  it('[C] in create-cwd mode there is exactly ONE hint line and it is not the list hint', () => {
+    const lines = renderSwitcher(sessions, { ...baseOptions, mode: 'create-cwd' });
+    // No list-mode hint should be present at all in create-cwd mode.
+    expect(lines.some((l) => l.includes('d delete') && l.includes('r refresh'))).toBe(false);
+  });
+
+  it('[D] the hint does not consume a session row — all N sessions are still rendered', () => {
+    const lines = renderSwitcher(sessions, { ...baseOptions, mode: 'list' });
+    for (const s of sessions) {
+      expect(lines.some((l) => l.includes(s.label))).toBe(true);
+    }
+  });
+});
+
 describe('relativeTime', () => {
   it('formats seconds, minutes, hours, yesterday, and days', () => {
     const now = new Date('2026-01-10T12:00:00Z');

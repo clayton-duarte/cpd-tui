@@ -11,6 +11,7 @@ import {
 } from '@earendil-works/pi-tui';
 import { listSessions, watchSessions, type PiSession } from './sessions.ts';
 import { renderSwitcher } from './switcher-render.ts';
+import type { SwitcherModeKind } from './switcher-render.ts';
 import { preserveSelectionById, nextSelectionAfterDeletion } from './switcher-selection.ts';
 import { assertDeletable, trashSessionFile, defaultTrashRoot, LiveSessionDeleteError } from './delete.ts';
 import { loadSwap } from './swap-loader.ts';
@@ -31,6 +32,11 @@ type Mode =
   | { kind: 'confirm-delete'; sessionId: string; label: string }
   | { kind: 'confirm-delete-live'; sessionId: string; label: string }
   | { kind: 'create-cwd'; choices: CreateCwdChoice[]; selectedIndex: number };
+
+// Drift guard: a new Mode whose kind the renderer doesn't know about fails here.
+type _ModeKindsAreRenderable = Mode['kind'] extends SwitcherModeKind ? true : never;
+const _modeKindsAreRenderable: _ModeKindsAreRenderable = true;
+void _modeKindsAreRenderable;
 
 export class SwitcherComponent {
   private sessions: PiSession[] = [];
@@ -258,6 +264,7 @@ export class SwitcherComponent {
       pendingFocusId: this.pendingFocusId,
       errorMessage: this.errorMessage,
       dashboardRunning: this.dashboardRunning,
+      mode: this.mode.kind,
     });
 
     if (this.mode.kind === 'confirm-delete') {
