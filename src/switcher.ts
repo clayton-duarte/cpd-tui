@@ -29,9 +29,10 @@ type CreateCwdChoice = { label: string; cwd: string };
 type Mode =
   | { kind: 'list' }
   | { kind: 'confirm-delete'; sessionId: string; label: string }
+  | { kind: 'confirm-delete-live'; sessionId: string; label: string }
   | { kind: 'create-cwd'; choices: CreateCwdChoice[]; selectedIndex: number };
 
-class SwitcherComponent {
+export class SwitcherComponent {
   private sessions: PiSession[] = [];
   private selectedId: string | null = null;
   private liveIds: Set<string> = new Set();
@@ -170,11 +171,27 @@ class SwitcherComponent {
     }
   }
 
-  /** Enter the delete-confirmation prompt (Defect 5), escapable with Esc. */
+  /** Enter the delete-confirmation prompt (Defect 5), escapable with Esc.
+   * A live session (currently occupying a pane) gets the "close it and
+   * delete?" variant instead of a dead-end refusal. */
   startDelete(): void {
     const session = this.selected();
     if (!session) return;
-    this.mode = { kind: 'confirm-delete', sessionId: session.id, label: session.label };
+    if (this.liveIds.has(session.id)) {
+      this.mode = { kind: 'confirm-delete-live', sessionId: session.id, label: session.label };
+    } else {
+      this.mode = { kind: 'confirm-delete', sessionId: session.id, label: session.label };
+    }
+  }
+
+  private trashSession(sessionId: string): void {
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    trashSessionFile(session.file, { trashRoot: defaultTrashRoot() });
+    const beforeIds = this.sessions.map((s) => s.id);
+    this.sessions = this.sessions.filter((s) => s.id !== sessionId);
+    const afterIds = this.sessions.map((s) => s.id);
+    this.selectedId = nextSelectionAfterDeletion(sessionId, beforeIds, afterIds);
   }
 
   async confirmDelete(): Promise<void> {
@@ -194,11 +211,26 @@ class SwitcherComponent {
       return;
     }
     try {
-      trashSessionFile(session.file, { trashRoot: defaultTrashRoot() });
-      const beforeIds = this.sessions.map((s) => s.id);
-      this.sessions = this.sessions.filter((s) => s.id !== sessionId);
-      const afterIds = this.sessions.map((s) => s.id);
-      this.selectedId = nextSelectionAfterDeletion(sessionId, beforeIds, afterIds);
+      this.trashSession(sessionId);
+    } catch (err) {
+      this.showError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** Confirm the "close it and delete?" prompt for a LIVE session: close the
+   * session's pane FIRST (never kill pi silently — only on explicit confirm),
+   * then run the normal trash flow. On cancel (handled by cancelPrompt), no
+   * changes happen at all. */
+  async confirmDeleteLive(): Promise<void> {
+    if (this.mode.kind !== 'confirm-delete-live') return;
+    const { sessionId } = this.mode;
+    this.mode = { kind: 'list' };
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    try {
+      await this.swap.killParkedWindowForSession(sessionId);
+      this.liveIds.delete(sessionId);
+      this.trashSession(sessionId);
     } catch (err) {
       this.showError(err instanceof Error ? err.message : String(err));
     }
@@ -230,6 +262,8 @@ class SwitcherComponent {
 
     if (this.mode.kind === 'confirm-delete') {
       lines.push(clamp(`delete "${this.mode.label}"? y/n`, width));
+    } else if (this.mode.kind === 'confirm-delete-live') {
+      lines.push(clamp(`"${this.mode.label}" is open. Close it and delete? (y/N)`, width));
     } else if (this.mode.kind === 'create-cwd') {
       lines.push(clamp('new session cwd (\u2191/\u2193 choose, Enter confirm, Esc cancel):', width));
       this.mode.choices.forEach((choice, i) => {
@@ -357,6 +391,17 @@ async function main(): Promise<void> {
         ui.requestRender();
         return;
       }
+      return;
+    }
+
+    if (mode.kind === 'confirm-delete-live') {
+      if (key === 'y' || key === 'Y') {
+        void switcher.confirmDeleteLive().then(() => ui.requestRender());
+        return;
+      }
+      // Default is NO: Esc, 'n'/'N', or anything else cancels with no changes.
+      switcher.cancelPrompt();
+      ui.requestRender();
       return;
     }
 

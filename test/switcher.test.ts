@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import type { PiSession } from '../src/sessions.ts';
 import { renderSwitcher, relativeTime } from '../src/switcher-render.ts';
 import { preserveSelectionById, nextSelectionAfterDeletion } from '../src/switcher-selection.ts';
+import { SwitcherComponent } from '../src/switcher.ts';
+import type { SwapModule, CpdPane } from '../src/swap-contract.ts';
 
 function makeSession(overrides: Partial<PiSession> & { id: string }): PiSession {
   return {
@@ -186,5 +191,119 @@ describe('nextSelectionAfterDeletion (the delete-selection regression guard)', (
   it('returns null when deleting the only row leaves the list empty', () => {
     const result = nextSelectionAfterDeletion('a', ['a'], []);
     expect(result).toBeNull();
+  });
+});
+
+function makeMockSwap(overrides: Partial<SwapModule> = {}): SwapModule {
+  return {
+    listPanes: async () => [],
+    getCenterPane: async () => ({ paneId: '%1', kind: 'center', sessionId: null, window: 'dash', width: 80, height: 24, pid: 1 }) as CpdPane,
+    liveSessionIds: async () => new Set(),
+    focusSession: async () => {},
+    isDashboardRunning: async () => true,
+    createSession: async () => ({ paneId: '%2' }),
+    tagPaneSession: async () => {},
+    focusSwitcher: async () => {},
+    killParkedWindowForSession: async () => {},
+    ...overrides,
+  };
+}
+
+describe('"d" on a live session offers to close it, not refuse (T-DEL)', () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
+  });
+
+  function makeFixture() {
+    const srcRoot = mkdtempSync(join(tmpdir(), 'cpd-tui-tdel-src-'));
+    const trashRoot = mkdtempSync(join(tmpdir(), 'cpd-tui-tdel-trash-'));
+    roots.push(srcRoot, trashRoot);
+    const file = join(srcRoot, 'session-live.jsonl');
+    writeFileSync(file, 'hello');
+    const session = makeSession({ id: 'live-1', file, label: 'live session' });
+    return { file, trashRoot, session };
+  }
+
+  it('[A] live session + confirm: closes the pane BEFORE trashing, trash called once', async () => {
+    const { file, session } = makeFixture();
+    const calls: string[] = [];
+    const swap = makeMockSwap({
+      killParkedWindowForSession: async () => {
+        calls.push('close');
+        // Ordering proof: at the moment the pane close fires, the session
+        // file must still be on disk — trash has not run yet.
+        expect(existsSync(file)).toBe(true);
+      },
+    });
+    const switcher = new SwitcherComponent(swap, '/repo');
+    (switcher as unknown as { sessions: PiSession[] }).sessions = [session];
+    (switcher as unknown as { liveIds: Set<string> }).liveIds = new Set(['live-1']);
+    (switcher as unknown as { selectedId: string | null }).selectedId = 'live-1';
+
+    switcher.startDelete();
+    expect(switcher.getMode()).toEqual({ kind: 'confirm-delete-live', sessionId: 'live-1', label: 'live session' });
+
+    await switcher.confirmDeleteLive();
+
+    expect(calls).toEqual(['close']);
+    expect(existsSync(file)).toBe(false); // trashed after close
+  });
+
+  it('[B] live session + cancel: neither close nor trash is called', async () => {
+    const { file, session } = makeFixture();
+    let closeCalled = false;
+    const swap = makeMockSwap({
+      killParkedWindowForSession: async () => {
+        closeCalled = true;
+      },
+    });
+    const switcher = new SwitcherComponent(swap, '/repo');
+    (switcher as unknown as { sessions: PiSession[] }).sessions = [session];
+    (switcher as unknown as { liveIds: Set<string> }).liveIds = new Set(['live-1']);
+    (switcher as unknown as { selectedId: string | null }).selectedId = 'live-1';
+
+    switcher.startDelete();
+    switcher.cancelPrompt();
+
+    expect(switcher.getMode()).toEqual({ kind: 'list' });
+    expect(closeCalled).toBe(false);
+    expect(existsSync(file)).toBe(true); // untouched: no trash call
+  });
+
+  it('[C] dormant session: trashed without any pane-close call', async () => {
+    const { file, session } = makeFixture();
+    let closeCalled = false;
+    const swap = makeMockSwap({
+      killParkedWindowForSession: async () => {
+        closeCalled = true;
+      },
+    });
+    const switcher = new SwitcherComponent(swap, '/repo');
+    (switcher as unknown as { sessions: PiSession[] }).sessions = [session];
+    (switcher as unknown as { liveIds: Set<string> }).liveIds = new Set(); // dormant
+    (switcher as unknown as { selectedId: string | null }).selectedId = 'live-1';
+
+    switcher.startDelete();
+    expect(switcher.getMode().kind).toBe('confirm-delete');
+
+    await switcher.confirmDelete();
+
+    expect(closeCalled).toBe(false);
+    expect(existsSync(file)).toBe(false); // moved to trash
+  });
+
+  it('[D] the trashed file lands under the trash root and the original path is gone', async () => {
+    const { file, session } = makeFixture();
+    const swap = makeMockSwap();
+    const switcher = new SwitcherComponent(swap, '/repo');
+    (switcher as unknown as { sessions: PiSession[] }).sessions = [session];
+    (switcher as unknown as { liveIds: Set<string> }).liveIds = new Set(['live-1']);
+    (switcher as unknown as { selectedId: string | null }).selectedId = 'live-1';
+
+    switcher.startDelete();
+    await switcher.confirmDeleteLive();
+
+    expect(existsSync(file)).toBe(false);
   });
 });
