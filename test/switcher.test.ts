@@ -240,6 +240,18 @@ describe('selectionAfterDeletion (the delete-selection regression guard)', () =>
     const result = selectionAfterDeletion('a', ['a'], []);
     expect(result).toBeNull();
   });
+
+  it('[G] skips a previous row that was ALSO deleted, never returning a stale id', () => {
+    // 'c' deleted, but 'b' vanished too (concurrent/external deletion).
+    const result = selectionAfterDeletion('c', ['a', 'b', 'c', 'd'], ['a', 'd']);
+    expect(result).toBe('a');
+    expect(['a', 'd']).toContain(result);
+  });
+
+  it('[H] falls forward when every row above the deleted one is gone', () => {
+    const result = selectionAfterDeletion('c', ['a', 'b', 'c'], ['c2', 'd']);
+    expect(result).toBe('c2');
+  });
 });
 
 describe('handleRowClick — single click opens (T-CLICK)', () => {

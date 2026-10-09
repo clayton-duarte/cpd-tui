@@ -46,9 +46,16 @@ export function selectionAfterDeletion(
     // anchor on, keep it simple and pick the first row.
     return afterIds[0]!;
   }
-  if (deletedIndex === 0) {
-    // No previous row exists; fall forward to the new first row.
-    return afterIds[0]!;
+  // Walk backwards to the nearest row that still EXISTS in afterIds. The row
+  // immediately above may itself have disappeared (an external/concurrent
+  // deletion between the two listings), and returning a stale id would leave
+  // the switcher with a selection that matches no visible row. When the first
+  // row was deleted this loop simply finds nothing and we fall forward below.
+  const survivors = new Set(afterIds);
+  for (let i = deletedIndex - 1; i >= 0; i--) {
+    const candidate = beforeIds[i]!;
+    if (survivors.has(candidate)) return candidate;
   }
-  return beforeIds[deletedIndex - 1]!;
+  // Every row above the deleted one is gone too; fall forward.
+  return afterIds[0]!;
 }
