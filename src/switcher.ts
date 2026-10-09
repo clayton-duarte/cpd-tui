@@ -12,6 +12,7 @@ import {
 import { listSessions, watchSessions, type PiSession } from './sessions.ts';
 import { renderSwitcher } from './switcher-render.ts';
 import type { SwitcherModeKind } from './switcher-render.ts';
+import { orderSessionsAsTree } from './session-tree.ts';
 import { preserveSelectionById, nextSelectionAfterDeletion } from './switcher-selection.ts';
 import { assertDeletable, trashSessionFile, defaultTrashRoot, LiveSessionDeleteError } from './delete.ts';
 import { loadSwap } from './swap-loader.ts';
@@ -92,6 +93,7 @@ export class SwitcherComponent {
       label: 'new session',
       created: new Date(info.createdAt),
       updated: new Date(),
+      parentPath: null,
     }));
 
     this.sessions = [...placeholderSessions, ...diskSessions];
@@ -105,7 +107,7 @@ export class SwitcherComponent {
 
   moveSelection(delta: 1 | -1): void {
     if (this.sessions.length === 0) return;
-    const ids = this.sessions.map((s) => s.id);
+    const ids = orderSessionsAsTree(this.sessions).map((e) => e.session.id);
     const currentIndex = this.selectedId ? ids.indexOf(this.selectedId) : -1;
     const baseIndex = currentIndex === -1 ? 0 : currentIndex;
     const nextIndex = (baseIndex + delta + ids.length) % ids.length;
@@ -298,7 +300,7 @@ export class SwitcherComponent {
   }
 
   sessionIdAt(rowIndex: number): string | undefined {
-    return this.sessions[rowIndex]?.id;
+    return orderSessionsAsTree(this.sessions)[rowIndex]?.session.id;
   }
 }
 

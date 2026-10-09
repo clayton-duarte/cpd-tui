@@ -8,6 +8,10 @@ export interface PiSession {
   label: string;
   created: Date;
   updated: Date;
+  /** Absolute path to the parent session file (pi's native `parentSession`
+   * header field), or null when this session has no parent / was never
+   * forked. Points OUTSIDE this file -- the cross-session lineage edge. */
+  parentPath: string | null;
 }
 
 const HEADER_READ_SIZE = 4096;
@@ -70,13 +74,34 @@ function truncateLabel(s: string): string {
 }
 
 function extractHeaderCwd(headText: string): string | null {
-  const firstNewline = headText.indexOf('\n');
-  const firstLine = firstNewline === -1 ? headText : headText.slice(0, firstNewline);
-  if (!firstLine.trim()) return null;
+  const firstLine = firstHeaderLine(headText);
+  if (!firstLine) return null;
   try {
     const parsed = JSON.parse(firstLine);
     if (parsed && typeof parsed.cwd === 'string' && parsed.cwd.length > 0) {
       return parsed.cwd;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function firstHeaderLine(headText: string): string | null {
+  const firstNewline = headText.indexOf('\n');
+  const firstLine = firstNewline === -1 ? headText : headText.slice(0, firstNewline);
+  return firstLine.trim() ? firstLine : null;
+}
+
+/** Read the header's `parentSession` (pi's native cross-session lineage
+ * edge, an absolute path to the parent .jsonl), or null when absent. */
+function extractHeaderParentSession(headText: string): string | null {
+  const firstLine = firstHeaderLine(headText);
+  if (!firstLine) return null;
+  try {
+    const parsed = JSON.parse(firstLine);
+    if (parsed && typeof parsed.parentSession === 'string' && parsed.parentSession.length > 0) {
+      return parsed.parentSession;
     }
     return null;
   } catch {
@@ -215,6 +240,7 @@ export async function listSessions(root?: string): Promise<PiSession[]> {
       const headText = readBoundedHead(file, HEADER_READ_SIZE);
       const cwd = extractHeaderCwd(headText);
       if (!cwd) continue;
+      const parentPath = extractHeaderParentSession(headText);
 
       const label = resolveLabel(file, stats.size, cwd);
 
@@ -225,6 +251,7 @@ export async function listSessions(root?: string): Promise<PiSession[]> {
         label,
         created: parsed.created,
         updated: stats.mtime,
+        parentPath,
       });
     } catch {
       // Skip any entry that errors (disappeared mid-scan, permission issue, etc.)

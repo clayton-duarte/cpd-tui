@@ -22,6 +22,7 @@ export interface WriteSessionOpts {
   dirName?: string; // override directory name (for junk/collision tests)
   fileName?: string; // override full file name (for malformed filename tests)
   rawContent?: string; // if set, write this raw content instead of header+lines
+  parentSession?: string; // absolute path written into the header's parentSession field
 }
 
 let counter = 0;
@@ -48,6 +49,7 @@ export function writeSessionFixture(opts: WriteSessionOpts): string {
     id,
     timestamp: createdIso,
     cwd: opts.cwd,
+    ...(opts.parentSession ? { parentSession: opts.parentSession } : {}),
   };
 
   const lines = [header, ...(opts.lines ?? [])];
