@@ -258,6 +258,7 @@ export class SwitcherComponent {
       pendingFocusId: this.pendingFocusId,
       errorMessage: this.errorMessage,
       dashboardRunning: this.dashboardRunning,
+      mode: this.mode.kind,
     });
 
     if (this.mode.kind === 'confirm-delete') {
