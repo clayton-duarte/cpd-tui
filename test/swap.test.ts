@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePanesOutput, findLivePane, type CpdPane } from '../src/swap.ts';
+import { parsePanesOutput, findLivePane, parkedWindowName, type CpdPane } from '../src/swap.ts';
 
 describe('parsePanesOutput', () => {
   it('parses a well-formed list-panes -F line into CpdPane[]', () => {
@@ -32,6 +32,21 @@ describe('parsePanesOutput', () => {
     const panes = parsePanesOutput(raw);
     expect(panes).toHaveLength(1);
     expect(panes[0].paneId).toBe('%0');
+  });
+});
+
+describe('parkedWindowName (window-per-session targeting)', () => {
+  it('derives a short, stable window name from the session id prefix', () => {
+    expect(parkedWindowName('abc12345-def6-7890-aaaa-bbbbccccdddd')).toBe('parked-abc12345');
+  });
+
+  it('produces distinct names for distinct session ids (no collisions -> no single-window ceiling)', () => {
+    const names = new Set(
+      ['aaaaaaaa-1', 'bbbbbbbb-2', 'cccccccc-3', 'dddddddd-4', 'eeeeeeee-5', 'ffffffff-6'].map(
+        parkedWindowName,
+      ),
+    );
+    expect(names.size).toBe(6);
   });
 });
 

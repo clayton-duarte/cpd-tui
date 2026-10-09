@@ -55,5 +55,17 @@ export function createFakeSwap(): SwapModule & { focusCalls: PiSession[] } {
     async isDashboardRunning(): Promise<boolean> {
       return true;
     },
+    async createSession(): Promise<{ paneId: string }> {
+      return { paneId: '%1' };
+    },
+    async tagPaneSession(): Promise<void> {
+      // no-op
+    },
+    async focusSwitcher(): Promise<void> {
+      // no-op
+    },
+    async killParkedWindowForSession(): Promise<void> {
+      // no-op
+    },
   };
 }
