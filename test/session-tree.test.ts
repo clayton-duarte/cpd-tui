@@ -50,12 +50,25 @@ describe('session tree — native parentSession lineage', () => {
       parentSession: '/does/not/exist/2026-01-01T00-00-00.000Z_ghost.jsonl',
     });
 
+    // A plain root sibling is required: without one, the cycle-breaker's
+    // final pass would emit the orphan at depth 0 anyway, so this test would
+    // still pass even if the missing-parent check were deleted. With a
+    // sibling, a regression demotes the orphan BELOW it and is caught.
+    writeSessionFixture({ root: r, cwd: '/x/plain', id: 'plain' });
+
     const sessions = await listSessions(r);
     expect(() => orderSessionsAsTree(sessions)).not.toThrow();
     const tree = orderSessionsAsTree(sessions);
-    expect(tree).toHaveLength(1);
-    expect(tree[0]!.session.id).toBe('orphan');
-    expect(tree[0]!.depth).toBe(0);
+    expect(tree).toHaveLength(2);
+
+    const orphanEntry = tree.find((e) => e.session.id === 'orphan');
+    expect(orphanEntry?.depth).toBe(0);
+
+    // The orphan must be treated as a root in the FIRST pass, keeping its
+    // input position, not swept up by the trailing cycle-breaker pass.
+    expect(tree.map((e) => e.session.id)).toEqual(
+      sessions.map((s) => s.id),
+    );
   });
 
   it('[C] cycle A->B->A terminates and every session appears EXACTLY once', () => {
