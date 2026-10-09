@@ -212,6 +212,51 @@ export async function createSession(cwd: string): Promise<{ paneId: string }> {
   }
 }
 
+/**
+ * Fork an existing session via pi's native `--fork <path>` CLI flag, in its
+ * own parked window (same spawn mechanism as createSession), then swap it
+ * into the center. pi records the parentSession lineage itself -- no
+ * bookkeeping here. Returns the pane id so the caller can tag it once the
+ * forked session's .jsonl file appears on disk.
+ */
+export async function forkSession(sourceFile: string, cwd: string): Promise<{ paneId: string }> {
+  try {
+    await assertDashboardRunning();
+    const panes = await listPanes();
+    const center = panes.find((p) => p.kind === 'center');
+    if (!center) {
+      throw new Error('No pane tagged @cpd_kind=center was found on the cpd server.');
+    }
+
+    const windowName = `parked-fork-${Date.now()}`;
+    const newPaneId = (
+      await tmux([
+        'new-window',
+        '-d',
+        '-t',
+        'cpd',
+        '-n',
+        windowName,
+        '-c',
+        cwd,
+        '-P',
+        '-F',
+        '#{pane_id}',
+        'pi',
+        '--fork',
+        sourceFile,
+      ])
+    ).trim();
+    await tmux(['set', '-p', '-t', newPaneId, '@cpd_kind', 'parked']);
+
+    await swapIntoCenter(newPaneId, center);
+    await tmux(['select-pane', '-t', center.paneId]);
+    return { paneId: center.paneId };
+  } catch (err) {
+    throw new Error(shortErrorMessage(err));
+  }
+}
+
 /** Tag a pane (by id) with a session id once it's known, e.g. after a newly
  * created session's .jsonl file finally appears. */
 export async function tagPaneSession(paneId: string, sessionId: string): Promise<void> {

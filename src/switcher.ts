@@ -179,6 +179,25 @@ export class SwitcherComponent {
     }
   }
 
+  /** Fork the selected session via pi's native --fork flag. No-op when
+   * nothing is selected (no spawn call at all). Spawns the same way
+   * confirmCreate() does, reusing the create/spawn path -- just with pi's
+   * fork flag instead of a bare `pi`. pi records the parentSession lineage
+   * itself; we write no bookkeeping of our own. */
+  async forkSelected(): Promise<void> {
+    const session = this.selected();
+    if (!session) return;
+    try {
+      const { paneId } = await this.swap.forkSession(session.file, session.cwd);
+      const placeholderId = `pending:${paneId}:${Date.now()}`;
+      this.pendingNewSessions.set(placeholderId, { paneId, cwd: session.cwd, createdAt: Date.now() });
+      this.liveIds.add(placeholderId);
+      this.selectedId = placeholderId;
+    } catch (err) {
+      this.showError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   /** Enter the delete-confirmation prompt (Defect 5), escapable with Esc.
    * A live session (currently occupying a pane) gets the "close it and
    * delete?" variant instead of a dead-end refusal. */
@@ -470,6 +489,10 @@ async function main(): Promise<void> {
     if (key === 'n') {
       switcher.startCreate();
       ui.requestRender();
+      return;
+    }
+    if (key === 'f') {
+      void switcher.forkSelected().then(() => ui.requestRender());
       return;
     }
     if (key === 'd') {
