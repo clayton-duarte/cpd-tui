@@ -52,7 +52,7 @@ describe('forkSelected — fork the selected session via pi --fork', () => {
   });
 
   it('[C] the bottom hint line lists the fork key', () => {
-    const hint = renderListHint(200, false);
+    const hint = renderListHint(200, false).join(' ');
     expect(hint).toContain('f fork');
   });
 

@@ -25,18 +25,60 @@ export interface RenderOptions {
 const ARROWS = { unicode: '\u2191\u2193', ascii: 'up/down' };
 const DOT = { unicode: '\u00b7', ascii: '-' };
 
-/** The persistent bottom-of-pane shortcut hint shown in normal list mode. */
-export function renderListHint(width: number, ascii: boolean): string {
+/** The persistent bottom-of-pane shortcut hint shown in normal list mode.
+ * Responsive: full labels on one line when they fit; otherwise wraps onto
+ * multiple lines on ` · ` boundaries; if even the bare key tokens can't all
+ * fit together, it still wraps those onto as many lines as needed. Never
+ * truncates a segment with an ellipsis -- an unreadable hint is worse than a
+ * longer one. */
+export function renderListHint(width: number, ascii: boolean): string[] {
   const sep = ` ${glyph(DOT, ascii)} `;
-  const hint = [
+  const fullSegments = [
     `${glyph(ARROWS, ascii)} move`,
     'enter open',
     'n new',
     'f fork',
     'd delete',
     'r refresh',
-  ].join(sep);
-  return clampLine(hint, width, ascii);
+  ];
+  const bareSegments = [glyph(ARROWS, ascii), 'enter', 'n', 'f', 'd', 'r'];
+
+  const full = fullSegments.join(sep);
+  if (visibleWidth(full) <= width) return [full];
+
+  const wrappedFull = wrapSegments(fullSegments, sep, width);
+  if (wrappedFull) return wrappedFull;
+
+  const wrappedBare = wrapSegments(bareSegments, sep, width);
+  if (wrappedBare) return wrappedBare;
+
+  // Last-resort: width is too narrow even for one bare token per line
+  // alongside its separator. Emit one token per line, clamped individually
+  // (never with an ellipsis mid-segment since each token itself is short).
+  return bareSegments.map((seg) => (visibleWidth(seg) <= width ? seg : seg.slice(0, Math.max(0, width))));
+}
+
+/** Greedily packs segments onto lines joined by `sep`, wrapping only at a
+ * segment boundary (never mid-segment). Returns null if any single segment
+ * alone (ignoring separators) doesn't fit within `width` -- the caller should
+ * fall back to a terser segment set in that case. */
+function wrapSegments(segments: string[], sep: string, width: number): string[] | null {
+  for (const seg of segments) {
+    if (visibleWidth(seg) > width) return null;
+  }
+  const lines: string[] = [];
+  let current = '';
+  for (const seg of segments) {
+    const candidate = current ? `${current}${sep}${seg}` : seg;
+    if (visibleWidth(candidate) <= width) {
+      current = candidate;
+    } else {
+      if (current) lines.push(current);
+      current = seg;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
 }
 
 const LIVE_GLYPH = { unicode: '●', ascii: '*' };
@@ -73,13 +115,13 @@ export function renderSwitcher(sessions: readonly PiSession[], options: RenderOp
 
   if (!options.dashboardRunning) {
     lines.push(clampLine('dashboard not running', width, ascii));
-    if (mode === 'list') lines.push(renderListHint(width, ascii));
+    if (mode === 'list') lines.push(...renderListHint(width, ascii));
     return lines;
   }
 
   if (sessions.length === 0) {
     lines.push(clampLine('no pi sessions yet', width, ascii));
-    if (mode === 'list') lines.push(renderListHint(width, ascii));
+    if (mode === 'list') lines.push(...renderListHint(width, ascii));
     return lines;
   }
 
@@ -102,7 +144,7 @@ export function renderSwitcher(sessions: readonly PiSession[], options: RenderOp
   // (create-cwd, confirm-delete) render their own single hint line instead,
   // appended by switcher.ts's render() after this returns — never both.
   if (mode === 'list') {
-    lines.push(renderListHint(width, ascii));
+    lines.push(...renderListHint(width, ascii));
   }
 
   return lines;

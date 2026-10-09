@@ -98,7 +98,7 @@ describe('handleKey — top-level key dispatch', () => {
   });
 
   it('[F] DRIFT GUARD: every key advertised in renderListHint() is handled by handleKey()', () => {
-    const hint = renderListHint(200, false);
+    const hint = renderListHint(200, false).join(' ');
     // Each hint segment looks like "<key> <label>" (or the move arrows segment,
     // which isn't a literal keypress token and is excluded). Extract the
     // single-character key token from every segment and assert handleKey()
