@@ -373,6 +373,50 @@ export function handleRowClick(
   void switcher.focusSelected().then(() => onRender());
 }
 
+/** Top-level key dispatch for normal 'list' mode (prompts/modes are handled
+ * by main() before calling this). Returns whether the key was handled.
+ * Pure refactor of the body that used to live inline in main()'s stdin
+ * handler -- behaviour must stay identical. */
+export function handleKey(key: string, switcher: SwitcherComponent, onRender: () => void): boolean {
+  if (key === 'j' || key === '\u001b[B') {
+    switcher.moveSelection(1);
+    onRender();
+    return true;
+  }
+  if (key === 'k' || key === '\u001b[A') {
+    switcher.moveSelection(-1);
+    onRender();
+    return true;
+  }
+  if (key === 'r') {
+    void switcher.refresh().then(() => onRender());
+    return true;
+  }
+  if (key === 'n') {
+    switcher.startCreate();
+    onRender();
+    return true;
+  }
+  if (key === 'f') {
+    void switcher.forkSelected().then(() => onRender());
+    return true;
+  }
+  if (key === 'd') {
+    switcher.startDelete();
+    onRender();
+    return true;
+  }
+  if (key === '\r' || key === '\n') {
+    void switcher
+      .focusSelected()
+      .then(() => switcher.refresh())
+      .then(() => onRender());
+    onRender();
+    return true;
+  }
+  return false;
+}
+
 function resolveRepoRoot(): string {
   // bin/cpd resolves the repo root from its own location; switcher.ts lives
   // one directory below it (src/), so mirror that: go up one from this file.
@@ -472,42 +516,7 @@ async function main(): Promise<void> {
       stop();
       return;
     }
-    if (key === 'j' || key === '\u001b[B') {
-      switcher.moveSelection(1);
-      ui.requestRender();
-      return;
-    }
-    if (key === 'k' || key === '\u001b[A') {
-      switcher.moveSelection(-1);
-      ui.requestRender();
-      return;
-    }
-    if (key === 'r') {
-      void switcher.refresh().then(() => ui.requestRender());
-      return;
-    }
-    if (key === 'n') {
-      switcher.startCreate();
-      ui.requestRender();
-      return;
-    }
-    if (key === 'f') {
-      void switcher.forkSelected().then(() => ui.requestRender());
-      return;
-    }
-    if (key === 'd') {
-      switcher.startDelete();
-      ui.requestRender();
-      return;
-    }
-    if (key === '\r' || key === '\n') {
-      void switcher
-        .focusSelected()
-        .then(() => switcher.refresh())
-        .then(() => ui.requestRender());
-      ui.requestRender();
-      return;
-    }
+    handleKey(key, switcher, () => ui.requestRender());
   });
 
   ui.start();
