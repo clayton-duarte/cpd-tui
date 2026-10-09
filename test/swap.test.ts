@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { parsePanesOutput, findLivePane, parkedWindowName, type CpdPane } from '../src/swap.ts';
 
 describe('parsePanesOutput', () => {
@@ -64,5 +64,69 @@ describe('findLivePane (live vs dormant decision)', () => {
 
   it('returns null for a session with no live pane (dormant), proving the dormant path is chosen', () => {
     expect(findLivePane(panes, 'does-not-exist')).toBeNull();
+  });
+});
+
+// --- focusSession: fakes tmux command execution, asserts on recorded argv ---
+vi.mock('../src/tmux.ts', () => {
+  return {
+    tmux: vi.fn(),
+    tmuxOk: vi.fn(async () => true),
+  };
+});
+
+describe('focusSession (center-pane keyboard focus)', () => {
+  const CENTER_PANE_ID = '%2';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function setupMockTmux(panesRaw: string, opts: { newPaneId?: string } = {}) {
+    const tmuxMod = await import('../src/tmux.ts');
+    const recorded: string[][] = [];
+    (tmuxMod.tmux as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (args: string[]) => {
+      recorded.push(args);
+      if (args[0] === 'list-panes') return panesRaw;
+      if (args[0] === 'new-window') return (opts.newPaneId ?? '%9') + '\n';
+      return '';
+    });
+    return recorded;
+  }
+
+  it('[A] session is ALREADY the center pane -> still records select-pane on center (regression under test)', async () => {
+    const panesRaw = `${CENTER_PANE_ID}|dash|48|50|1002|center|already-centered`;
+    const recorded = await setupMockTmux(panesRaw);
+    const { focusSession } = await import('../src/swap.ts');
+
+    await focusSession({ id: 'already-centered', file: '/tmp/a.jsonl', cwd: '/tmp' } as any);
+
+    expect(recorded.some((args) => args[0] === 'select-pane' && args.includes(CENTER_PANE_ID))).toBe(true);
+  });
+
+  it('[B] session is live in another pane -> swap happens AND select-pane on center', async () => {
+    const panesRaw = [
+      `${CENTER_PANE_ID}|dash|48|50|1002|center|someone-else`,
+      '%3|parked|160|45|1003|parked|live-elsewhere',
+    ].join('\n');
+    const recorded = await setupMockTmux(panesRaw);
+    const { focusSession } = await import('../src/swap.ts');
+
+    await focusSession({ id: 'live-elsewhere', file: '/tmp/b.jsonl', cwd: '/tmp' } as any);
+
+    expect(recorded.some((args) => args[0] === 'swap-pane')).toBe(true);
+    expect(recorded.some((args) => args[0] === 'select-pane' && args.includes(CENTER_PANE_ID))).toBe(true);
+  });
+
+  it('[C] session is dormant -> respawn path also ends with select-pane on center', async () => {
+    const panesRaw = `${CENTER_PANE_ID}|dash|48|50|1002|center|someone-else`;
+    const recorded = await setupMockTmux(panesRaw, { newPaneId: '%9' });
+    const { focusSession } = await import('../src/swap.ts');
+
+    await focusSession({ id: 'dormant-session', file: '/tmp/c.jsonl', cwd: '/tmp' } as any);
+
+    expect(recorded.some((args) => args[0] === 'new-window')).toBe(true);
+    expect(recorded.some((args) => args[0] === 'swap-pane')).toBe(true);
+    expect(recorded.some((args) => args[0] === 'select-pane' && args.includes(CENTER_PANE_ID))).toBe(true);
   });
 });
