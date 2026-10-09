@@ -141,43 +141,42 @@ export async function focusSession(session: PiSession): Promise<void> {
       throw new Error('No pane tagged @cpd_kind=center was found on the cpd server.');
     }
 
-    if (center.sessionId === session.id) {
-      // Already centered; nothing to do.
-      return;
+    if (center.sessionId !== session.id) {
+      const live = findLivePane(panes, session.id);
+      if (live) {
+        await swapIntoCenter(live.paneId, center);
+      } else {
+        // Dormant: spawn a new window (its own, not a split — see Defect 1)
+        // running pi --session <file>, with cwd set to the session's cwd,
+        // then swap it in.
+        const windowName = parkedWindowName(session.id);
+        const newPaneId = (
+          await tmux([
+            'new-window',
+            '-d',
+            '-t',
+            'cpd',
+            '-n',
+            windowName,
+            '-c',
+            session.cwd,
+            '-P',
+            '-F',
+            '#{pane_id}',
+            'pi',
+            '--session',
+            session.file,
+          ])
+        ).trim();
+        await tmux(['set', '-p', '-t', newPaneId, '@cpd_kind', 'parked']);
+        await tmux(['set', '-p', '-t', newPaneId, '@cpd_session', session.id]);
+
+        await swapIntoCenter(newPaneId, center);
+      }
     }
 
-    const live = findLivePane(panes, session.id);
-    if (live) {
-      await swapIntoCenter(live.paneId, center);
-      await tmux(['select-pane', '-t', center.paneId]);
-      return;
-    }
-
-    // Dormant: spawn a new window (its own, not a split — see Defect 1) running
-    // pi --session <file>, with cwd set to the session's cwd, then swap it in.
-    const windowName = parkedWindowName(session.id);
-    const newPaneId = (
-      await tmux([
-        'new-window',
-        '-d',
-        '-t',
-        'cpd',
-        '-n',
-        windowName,
-        '-c',
-        session.cwd,
-        '-P',
-        '-F',
-        '#{pane_id}',
-        'pi',
-        '--session',
-        session.file,
-      ])
-    ).trim();
-    await tmux(['set', '-p', '-t', newPaneId, '@cpd_kind', 'parked']);
-    await tmux(['set', '-p', '-t', newPaneId, '@cpd_session', session.id]);
-
-    await swapIntoCenter(newPaneId, center);
+    // Single common exit path: keyboard focus must always end up on the
+    // center pane, whether we just got here or were already there.
     await tmux(['select-pane', '-t', center.paneId]);
   } catch (err) {
     throw new Error(shortErrorMessage(err));
